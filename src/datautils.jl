@@ -26,6 +26,29 @@ function _svector2array(c_vec::Vector{SVector{N_rep, T}}) where {N_rep,T<:Number
     return c_matrix
 end
 
+"""
+    save_h5fdata(rdata, filename )
+
+Saves a friction tensor dataset with the HDF5 file structure expected by `load_h5fdata`, for use in training scripts. 
+
+# Arguments
+
+## `rdata`:
+A `Vector{NamedTuple}` containing the training data in the following format.
+
+```
+(
+    at = ::JuLIP.Atoms,
+    friction_tensor = sparse(::Matrix),
+    friction_indices = ::Vector{Int}
+)
+```
+
+## `filename`
+
+Name of the file to save to (including h5 extension). 
+
+"""
 function save_h5fdata(rdata, filename )
     fid = h5open(filename, "w")
     try
