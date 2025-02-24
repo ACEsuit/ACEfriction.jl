@@ -102,7 +102,7 @@ end
 
 function BlockDenseArray(full_tensor::Matrix; indices=1:size(full_tensor,1)) 
     @assert size(full_tensor,1) == size(full_tensor,2)
-    return BlockDenseMatrix(full_tensor[indice,indices], indices)
+    return BlockDenseMatrix(full_tensor[indices,indices], indices)
 end
 
 struct FrictionData{A} 
