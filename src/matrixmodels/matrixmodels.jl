@@ -57,9 +57,8 @@ struct NoZ2Sym <: Z2Symmetry end
 function ACE.write_dict(z2s::Z2S) where {Z2S<:Z2Symmetry}
     return Dict("__id__" => string("ACEfriction_Z2Symmetry"), "z2s"=>typeof(z2s)) 
 end
-function ACE.read_dict(::Val{:ACEfriction_Z2Symmetry}, D::Dict) 
-    z2s = getfield(ACEfriction.MatrixModels, Symbol(D["z2s"]))
-    return z2s()
+function ACE.read_dict(::Val{:ACEfriction_Z2Symmetry}, D::Dict) # This one includes its entire type string.
+    return Symbol(D["z2s"])()
 end
 abstract type SpeciesCoupling end 
 
