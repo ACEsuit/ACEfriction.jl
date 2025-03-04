@@ -69,7 +69,7 @@ function _hdf52Atoms( ag::HDF5.Group )
             positions = permutedims(read(ag["positions"]), [2, 1])
         end
     catch
-        @warn "No column_major attribute for dataset positions missing. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
+        @warn "The attribute 'column_major' is missing for the data 'positions'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
         positions = read(ag["positions"])
     end
 
@@ -80,7 +80,7 @@ function _hdf52Atoms( ag::HDF5.Group )
             cell = permutedims(read(ag["cell"]), [2, 1])
         end
     catch
-        @warn "No column_major attribute for dataset cell missing. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
+        @warn "The attribute 'column_major' is missing for the data 'cell'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
         cell = read(ag["cell"])
     end
     return JuLIP.Atoms(;
@@ -100,7 +100,7 @@ function _hdf52ft( ftg::HDF5.Group )
             ft_val = permutedims(read(ftg["ft_val"]), [3, 2, 1])
         end
     catch
-        @warn "No column_major attribute for dataset ft_val missing. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
+        @warn "The attribute 'column_major' is missing for the data 'ft_val'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
         ft_val = read(ftg["ft_val"])
     end
     spft = sparse( read(ftg["ft_I"]),read(ftg["ft_J"]), [SMatrix{3,3}(d) for d in eachslice(ft_val; dims=1)] )
