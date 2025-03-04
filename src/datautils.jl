@@ -83,16 +83,50 @@ function save_h5fdata(rdata, filename )
     HDF5.close(fid)
 end
 
-_hdf52Atoms( ag::HDF5.Group ) = JuLIP.Atoms(;
-                X=[SVector{3}(d) for d in eachslice(read(ag["positions"]); dims=1)],
-                Z=read(ag["atypes"]), 
-                cell= read(ag["cell"]),
-                pbc=read(ag["pbc"])
-            )
+function _hdf52Atoms( ag::HDF5.Group ) 
+    local positions, cell
+    try
+        if Bool(read_attribute(ag["positions"],"column_major")) == true
+            positions = read(ag["positions"])
+        else
+            positions = permutedims(read(ag["positions"]), [2, 1])
+        end
+    catch
+        @warn "The attribute 'column_major' is missing for the data 'positions'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
+        positions = read(ag["positions"])
+    end
 
+    try
+        if Bool(read_attribute(ag["cell"],"column_major")) == true
+            cell = read(ag["cell"])
+        else
+            cell = permutedims(read(ag["cell"]), [2, 1])
+        end
+    catch
+        @warn "The attribute 'column_major' is missing for the data 'cell'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
+        cell = read(ag["cell"])
+    end
+    return JuLIP.Atoms(;
+                X=[SVector{3}(d) for d in eachslice(positions; dims=1)],
+                Z=read(ag["atypes"]), 
+                cell= cell,
+                pbc=Bool.(read(ag["pbc"]))
+            )
+end
         
 function _hdf52ft( ftg::HDF5.Group ) 
-    spft = sparse( read(ftg["ft_I"]),read(ftg["ft_J"]), [SMatrix{3,3}(d) for d in eachslice(read(ftg["ft_val"]); dims=1)] )
+    local ft_val
+    try
+        if Bool(read_attribute(ftg["ft_val"],"column_major")) == true
+            ft_val = read(ftg["ft_val"])
+        else
+            ft_val = permutedims(read(ftg["ft_val"]), [3, 2, 1])
+        end
+    catch
+        @warn "The attribute 'column_major' is missing for the data 'ft_val'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
+        ft_val = read(ftg["ft_val"])
+    end
+    spft = sparse( read(ftg["ft_I"]),read(ftg["ft_J"]), [SMatrix{3,3}(d) for d in eachslice(ft_val; dims=1)] )
     ft_mask = read(ftg["ft_mask"])
     return (friction_tensor = spft, mask = ft_mask)
 end
