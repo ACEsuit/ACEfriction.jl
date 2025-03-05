@@ -58,7 +58,7 @@ function ACE.write_dict(z2s::Z2S) where {Z2S<:Z2Symmetry}
     return Dict("__id__" => string("ACEfriction_Z2Symmetry"), "z2s"=>typeof(z2s)) 
 end
 function ACE.read_dict(::Val{:ACEfriction_Z2Symmetry}, D::Dict) 
-    z2s = getfield(ACEfriction.MatrixModels, Symbol(D["z2s"]))
+    z2s = getfield(ACEfriction.MatrixModels, Symbol(split(D["z2s"], ".")[end])) # This was exporting it's full type, whereas we just need the last node. 
     return z2s()
 end
 abstract type SpeciesCoupling end 
@@ -70,7 +70,7 @@ function ACE.write_dict(sc::SC) where {SC<:SpeciesCoupling}
     return Dict("__id__" => string("ACEfriction_SpeciesCoupling"), "sc"=>typeof(sc)) 
 end
 function ACE.read_dict(::Val{:ACEfriction_SpeciesCoupling}, D::Dict) 
-    sc = getfield(ACEfriction.MatrixModels, Symbol(D["sc"]))
+    sc = getfield(ACEfriction.MatrixModels, Symbol(split(D["sc"], ".")[end]))
     return sc()
 end
 
@@ -83,7 +83,7 @@ function ACE.write_dict(evalcenter::EVALCENTER) where {EVALCENTER<:EvaluationCen
     return Dict("__id__" => string("ACEfriction_EvaluationMode"), "evalcenter"=>typeof(evalcenter)) 
 end
 function ACE.read_dict(::Val{:ACEfriction_EvaluationMode}, D::Dict) 
-    evalcenter = getfield(ACEfriction.MatrixModels, Symbol(D["evalcenter"]))
+    evalcenter = getfield(ACEfriction.MatrixModels, Symbol(split(D["evalcenter"], ".")[end]))
     return evalcenter()
 end
 
