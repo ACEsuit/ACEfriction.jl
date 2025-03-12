@@ -3,7 +3,7 @@
 In this workflow example we demonstrate how `ACEfriction.jl` can be used to fit a simple 6 x 6 Electronic friction tensor modeling the non-adiabitic interactions of a hydrogen-atom on a copper surface. 
 
 ## Load Electronic Friction Tensor Data
-We first use the function [load_h5fdata]() to load the data of friction tensors from a [custom-formated]() hdf5 file and convert the data to the internal data format [FrictionData].
+We first use the function [load_h5fdata](@ref) to load the data of friction tensors from a [custom-formated](@ref costum-hdf5-format) hdf5 file and convert the data to the internal data format [FrictionData](@ref friction-data-representation).
 ```julia
 using ACEfriction
 # Load data 
@@ -12,8 +12,8 @@ rdata = ACEfriction.DataUtils.load_h5fdata( "./test/test-data-100.h5");
 n_train = Int(ceil(.8 * length(rdata)))
 n_test = length(rdata) - n_train
 # Partition data into train and test set and convert the data 
-fdata = Dict("train" => FrictionData.(rdata[1:n_train]), 
-            "test"=> FrictionData.(rdata[n_train+1:end]));
+fdata = Dict("train" => rdata[1:n_train], 
+            "test"=> rdata[n_train+1:end]);
 ```
 
 ## Specify the Friction Model
@@ -46,7 +46,7 @@ To train our model we first extract the parameters from the friction model, whic
 c=params(fm)                                
 ffm = FluxFrictionModel(c)
 ```
-Next, the function `flux_assemble` is used to prepare data for training. This includes evaluating the ACE-basis functions of the matrix models in `fm` on all configurations in the data set. Since the loss function of our model is quartic polynomial in the parameters, we don't need to reevaluate the ACE-basis functions at later stages of the training process.
+Next, the function [`flux_assemble`]() is used to prepare data for training. This includes evaluating the ACE-basis functions of the matrix models in `fm` on all configurations in the data set. Since the loss function of our model is quartic polynomial in the parameters, we don't need to reevaluate the ACE-basis functions at later stages of the training process.
 ```julia
 flux_data = Dict( "train"=> flux_assemble(fdata["train"], fm, ffm; ),
                   "test"=> flux_assemble(fdata["test"], fm, ffm));

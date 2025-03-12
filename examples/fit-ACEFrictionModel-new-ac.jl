@@ -93,6 +93,7 @@ set_params!(fm, params(ffm))
 
 at = fdata["test"][1].atoms
 @time Gamma(fm, at)
+G = Gamma(fm, at)
 @time Σ = Sigma(fm, at)
 @time Gamma(fm, Σ)
 @time randf(fm, Σ)

@@ -11,6 +11,7 @@ export RWCMatrixModel, PWCMatrixModel, OnsiteOnlyMatrixModel, mbdpd_matrixmodel
 
 # Outer convenience constructors for subtypes of MatrixModels
 
+
 """
     function RWCMatrixModel(property, species_friction, species_env; 
         maxorder=2, 
@@ -36,7 +37,6 @@ Creates a matrix model with row-wise coupling. By default, this model evaluates 
 -   `n_rep` -- the number of matrix blocks evaluated per atom pair.
 -   `species_substrat` -- a list of chemical element types. At least one atom of such element types must be within the pair-environemt of two friction-feeling atoms i,j in order for the matrix-block ``\\Sigma_{ij}`` to be non-zero.
 """
-# #-   `rcut` -- For row-wise coupled matrix models, the pair environment of the atom pair i,j is by default defined as the set of atoms within a spherical cutoff of radius `rcut` around the atom i.
 function RWCMatrixModel(property, species_friction, species_env; 
     maxorder=2, 
     maxdeg=5,  
@@ -54,6 +54,7 @@ function RWCMatrixModel(property, species_friction, species_env;
     bond_weight = 1.0,
     id=nothing
     )
+    # #-   `rcut` -- For row-wise coupled matrix models, the pair environment of the atom pair i,j is by default defined as the set of atoms within a spherical cutoff of radius `rcut` around the atom i.
     return RWCMatrixModel(property, species_friction, species_env, evalcenter;
         n_rep = n_rep,
         species_substrat = species_substrat,
@@ -231,7 +232,7 @@ end
     )
 
 
-Create a matrix model for a momentum-preserving friction tensors suitable for the simulation of Dissipative Particle Dynamics. The model is a particular parametrization of a pair-wise coupled matrix model.
+Create a matrix model for a momentum-preserving friction model for the simulation of Dissipative Particle Dynamics. The model is a particular parametrization of a pair-wise coupled matrix model.
 
 This model evaluates blocks ``\\Sigma_{ij}`` as a function of ellipoid-shaped pair environments centered at the midpoints of the positions of atoms i.j.
 

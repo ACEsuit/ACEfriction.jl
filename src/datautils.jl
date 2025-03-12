@@ -9,6 +9,18 @@ export FrictionData, BlockDenseArray
 export save_h5fdata, load_h5fdata
 using HDF5
 
+struct FrictionData
+    atoms
+    friction_tensor
+    friction_indices
+end
+
+function FrictionData(d::NamedTuple{(:at, :friction_tensor, :friction_indices)})
+    return FrictionData(d.at, d.friction_tensor, d.friction_indices)
+end
+# function FrictionData(d::NamedTuple{(:at, :friction_tensor, :friction_indices,:friction_indices_ref)})
+#     return FrictionData(d.at, d.friction_tensor, d.friction_indices, d.friction_tensor_ref)
+# end
 
 function _array2svector(x::Array{T,2}) where {T}
     return [ SVector{3}(x[i,:]) for i in 1:size(x)[1] ]
@@ -26,30 +38,21 @@ function _svector2array(c_vec::Vector{SVector{N_rep, T}}) where {N_rep,T<:Number
     return c_matrix
 end
 
-"""
-    save_h5fdata(rdata, filename )
-
-Saves a friction tensor dataset with the HDF5 file structure expected by `load_h5fdata`, for use in training scripts. 
-
-# Arguments
-
-## `rdata`:
-A `Vector{NamedTuple}` containing the training data in the following format.
-
-```
-(
-    at = ::JuLIP.Atoms,
-    friction_tensor = sparse(::Matrix),
-    friction_indices = ::Vector{Int}
-)
-```
-
-## `filename`
-
-Name of the file to save to (including h5 extension). 
 
 """
-function save_h5fdata(rdata, filename )
+    save_h5fdata(rdata::Vector{FrictionData}, filename::String )
+
+Saves a friction tensor data in a costum formatted hdf5 file.
+
+### Arguments
+- `rdata` : Vector{FrictionData} :
+    A vector of friction data entries. Each entry is a structure of type `Frictiondata` with the following fields:
+    - `at` : JuLIP.Atoms : Atoms object containing the atomic positions, cell, and periodic boundary conditions.
+    - `friction_tensor` : SparseMatrix{SMatrix{3,3,Float64,9}} : Sparse matrix representation of the friction tensor.
+    - `friction_indices` : Vector{Int} : Indices of the atoms for which the friction tensor is defined.
+- `filename` : String : Name of the file to save to (including h5 extension).
+"""
+function save_h5fdata(rdata::Vector{FrictionData}, filename::String )
     fid = h5open(filename, "w")
     try
         # iterate over each data entry
@@ -58,13 +61,13 @@ function save_h5fdata(rdata, filename )
             g = create_group(fid, "$i")
             # write atoms data
             ag = create_group(g, "atoms")
-            dset_pos = create_dataset(ag, "positions", Float64, (length(d.at.X), 3))
-            for (k,x) in enumerate(d.at.X)
+            dset_pos = create_dataset(ag, "positions", Float64, (length(d.atoms.X), 3))
+            for (k,x) in enumerate(d.atoms.X)
                 dset_pos[k,:] = x
             end
-            write(ag, "atypes", Int.(d.at.Z))
-            write(ag, "cell", Matrix(d.at.cell))
-            write(ag, "pbc", Array(d.at.pbc))
+            write(ag, "atypes", Int.(d.atoms.Z))
+            write(ag, "cell", Matrix(d.atoms.cell))
+            write(ag, "pbc", Array(d.atoms.pbc))
             # write friction data
             fg = create_group(g, "friction_tensor")
             (I,J,V) = findnz(d.friction_tensor)
@@ -115,7 +118,7 @@ function _hdf52Atoms( ag::HDF5.Group )
 end
         
 function _hdf52ft( ftg::HDF5.Group ) 
-    local ft_val
+    local ft_val 
     try
         if Bool(read_attribute(ftg["ft_val"],"column_major")) == true
             ft_val = read(ftg["ft_val"])
@@ -131,7 +134,23 @@ function _hdf52ft( ftg::HDF5.Group )
     return (friction_tensor = spft, mask = ft_mask)
 end
 
-function load_h5fdata(filename)
+
+"""
+    load_h5fdata(filename::String)
+
+Loads a friction tensor data from a costum formatted hdf5 file.
+
+### Arguments
+- `filename` : String : Name of the file to load from (including h5 extension).
+
+### Returns
+- `rdata` : Vector{FrictionData} :
+    A vector of friction data entries. Each entry is a structure of type `Frictiondata` with the following fields:
+    - `at` : JuLIP.Atoms : Atoms object containing the atomic positions, cell, and periodic boundary conditions.
+    - `friction_tensor` : SparseMatrix{SMatrix{3,3,Float64,9}} : Sparse matrix representation of the friction tensor.
+    - `friction_indices` : Vector{Int} : Indices of the atoms for which the friction tensor is defined.
+"""
+function load_h5fdata(filename::String)
     fid = h5open(filename, "r")
     N_data = read_attribute(fid, "N_data")
     rdata = @showprogress [begin
@@ -141,7 +160,7 @@ function load_h5fdata(filename)
             end
             for i=1:N_data]
     HDF5.close(fid)
-    return rdata
+    return FrictionData.(rdata)
 end
 
 """
@@ -162,23 +181,7 @@ function BlockDenseArray(full_tensor::Matrix; indices=1:size(full_tensor,1))
     return BlockDenseMatrix(full_tensor[indices,indices], indices)
 end
 
-struct FrictionData{A} 
-    atoms::Atoms
-    friction_tensor::A
-    friction_indices
-    friction_tensor_ref
-end
 
-function FrictionData(d::NamedTuple{(:at, :friction_tensor, :friction_indices)})
-    return FrictionData(d.at, d.friction_tensor, d.friction_indices, nothing)
-end
-function FrictionData(d::NamedTuple{(:at, :friction_tensor, :friction_indices,:friction_indices_ref)})
-    return FrictionData(d.at, d.friction_tensor, d.friction_indices, d.friction_tensor_ref)
-end
-# function FrictionData(atoms::Atoms, friction_tensor, friction_indices;  
-#                                                                 friction_tensor_ref=nothing)
-#     return FrictionData(atoms, friction_tensor, friction_indices, weights, friction_tensor_ref)
-# end
 
 
 end
