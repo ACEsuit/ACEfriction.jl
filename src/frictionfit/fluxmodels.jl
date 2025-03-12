@@ -92,6 +92,16 @@ function _add_default_transforms(transforms::NamedTuple, model_ids)
         ) for s in model_ids
     )
 end
+
+
+"""
+    FluxFrictionModel(c::NamedTuple{model_ids}) where {model_ids}
+
+Create a FluxFrictionModel with the parameters `c` and the model ids `model_ids`.
+
+### Arguments
+- `c::NamedTuple{model_ids}` : The parameters of the model.
+"""
 function FluxFrictionModel(c::NamedTuple{model_ids}; transforms::NamedTuple=NamedTuple()) where {model_ids}
     transform_filtered = _add_default_transforms(transforms, model_ids)
     #return FluxFrictionModel( map(cc->reinterpret(SVector{Vector{Float64}}, cc), transform_params(Tuple(c),transform_filtered)), model_ids, transform_filtered)
@@ -129,6 +139,16 @@ end
 #     end
 # end
 
+"""
+    set_params!(m::FluxFrictionModel; sigma=1E-8, model_ids::Array{Symbol}=Symbol[])
+
+Randomizes the parameters of the model `m`.
+
+### Arguments
+- `m::FluxFrictionModel`: The model to set the parameters of.
+- `sigma::Float64=1E-8`: The standard deviation of the random values.
+- `model_ids::Array{Symbol}=[]`: The ids of the models to set the parameters of. If empty, all the parameters are set.
+"""
 function set_params!(m::FluxFrictionModel; sigma=1E-8, model_ids::Array{Symbol}=Symbol[])
     model_ids = (isempty(model_ids) ? get_ids(m) : model_ids)
     for (v,s) in zip(m.c,m.model_ids)
@@ -139,6 +159,15 @@ function set_params!(m::FluxFrictionModel; sigma=1E-8, model_ids::Array{Symbol}=
     end
 end
 
+"""
+    set_params!(m::FluxFrictionModel, c_new::NamedTuple)
+
+Set the parameters of the model to the values in `c_new`.
+
+### Arguments
+- `m::FluxFrictionModel`: The model to set the parameters of.
+- `c_new::NamedTuple`: The new parameters.  The keys of `c_new` should be a subset of `m.model_ids`.
+"""
 function set_params!(m::FluxFrictionModel, c_new::NamedTuple)
     for (v,s) in zip(m.c, m.model_ids)
         if s in keys(c_new)
@@ -146,13 +175,23 @@ function set_params!(m::FluxFrictionModel, c_new::NamedTuple)
         end
     end
 end
+"""
+    get_ids(m::FluxFrictionModel)
 
+Return the model ids of the model `m`.
+"""
 get_ids(m::FluxFrictionModel) = m.model_ids
 (m::FluxFrictionModel)(B, Tfm) = _Gamma(B, m.c, Tfm) 
 
 Flux.@functor FluxFrictionModel (c,)
 Flux.trainable(m::FluxFrictionModel) = (c=m.c,)
 
+
+"""
+    params(m::FluxFrictionModel; transformed=true)
+
+Return the parameters of the model `m`.
+"""
 params(m::FluxFrictionModel; transformed=true) = NamedTuple{m.model_ids}(transformed ? rev_transform_params(m.c,m.transforms) : m.c )
 get_transform(m::FluxFrictionModel) = NamedTuple{m.model_ids}(m.transforms)
 
@@ -160,17 +199,37 @@ function _l2(Γ_fit::Array{T,4},Γ_true::Array{T,4}) where {T<:Number}
     @tullio err:= (Γ_fit[d1,d2,i,j]- Γ_true[d1,d2,i,j])^2
     return err
 end 
+
+"""
+    l2_loss(fm, data)
+
+Compute the L2 loss of the model `fm` on the data `data`.
+"""
 l2_loss(fm, data) = sum(_l2(fm(d.B, d.Tfm), d.friction_tensor) for d in data)
 
 function _weighted_l2(Γ_fit::Array{T,4},Γ_true::Array{T,4},W::Array{T,4}) where {T<:Number}
     @tullio err:= W[d1,d2,i,j] * (Γ_fit[d1,d2,i,j]- Γ_true[d1,d2,i,j])^2
     return err
 end 
-weighted_l2_loss(fm, data) = sum(_weighted_l2(fm(d.B, d.Tfm), d.friction_tensor, d.W) for d in data)
+
+
+"""
+    weighted_l2_loss(fm, data)
+
+Compute the weighted L2 loss of the model `fm` on the data `data`.
+"""
+function weighted_l2_loss(fm, data)
+    sum(_weighted_l2(fm(d.B, d.Tfm), d.friction_tensor, d.W) for d in data)
+end
 
 function _weighted_l1(Γ_fit::Array{T,4},Γ_true::Array{T,4},W::Array{T,4}) where {T<:Number}
     @tullio err:= W[d1,d2,i,j] * abs(Γ_fit[d1,d2,i,j]- Γ_true[d1,d2,i,j])
     return err
 end 
 
+"""
+    weighted_l1_loss(fm, data)
+
+Compute the weighted L1 loss of the model `fm` on the data `data`.
+"""
 weighted_l1_loss(fm, data) = sum(_weighted_l1(fm(d.B, d.Tfm), d.friction_tensor, d.W) for d in data)

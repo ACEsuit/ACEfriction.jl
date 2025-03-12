@@ -29,8 +29,17 @@ makedocs(;
                 "Fitting an Electronic Friction Tensor" => "fitting-eft.md",
                 "Fitting a Dissipative Particle Dynamics Friction Model" => "fitting-mbdpd.md"
             ],
-        "Function Manual" => Any[
-            "function-manual.md",
+        # "Importing & Exporting Friction Data" => Any[
+        #         "data-import-export.md",
+        #     ],
+        # "Function Manual" => Any[
+        #     "function-manual.md"
+        # ]
+                "Function Manual" => Any[
+            "ACEfriction.FrictionModels" => "./function-manual/ACEfriction.FrictionModels.md",
+            "ACEfriction.MatrixModels" => "./function-manual/ACEfriction.MatrixModels.md",
+            "ACEfriction.FrictionFit" => "./function-manual/ACEfriction.FrictionFit.md",
+            "ACEfriction.DataUtils" => "./function-manual/ACEfriction.DataUtils.md"
         ]
     ]
     )

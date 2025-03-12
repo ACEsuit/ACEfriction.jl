@@ -74,8 +74,8 @@ shuffle!(rng, rdata)
 n_train = Int(ceil(.8 * length(rdata)))
 n_test = length(rdata) - n_train
 
-fdata = Dict("train" => FrictionData.(rdata[1:n_train]), 
-            "test"=> FrictionData.(rdata[n_train+1:end]));
+fdata = Dict("train" => rdata[1:n_train], 
+            "test"=> rdata[n_train+1:end]);
             
 @info "Fit RWC friction model"            
 c = params(fm)

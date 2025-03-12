@@ -1,6 +1,3 @@
-"""
-
-"""
 struct PWCMatrixModel{O3S,CUTOFF,Z2S,SC} <: MatrixModel{O3S}
     offsite::OffSiteModels{O3S,Z2S,CUTOFF} where {Z2S, CUTOFF}
     n_rep::Int

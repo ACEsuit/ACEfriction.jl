@@ -9,7 +9,6 @@ include("./atomcutoffs.jl")
 include("./matrixmodels/matrixmodels.jl")
 include("./frictionmodels.jl")
 include("./frictionfit/frictionfit.jl")
-
 include("./matrixmodelsutils.jl")
 
 import ACEfriction.FrictionModels: FrictionModel, Gamma, Sigma

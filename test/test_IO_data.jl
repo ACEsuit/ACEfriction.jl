@@ -14,6 +14,6 @@ save_h5fdata(data1,filename2);
 data2= load_h5fdata(filename2);
 rm(filename2)
 
-@test all([all([getfield(d1.at,f) == getfield(d2.at,f) && 
-typeof(getfield(d1.at,f)) == typeof(getfield(d2.at,f)) for f in fieldnames(typeof(d1.at))])
+@test all([all([getfield(d1.atoms,f) == getfield(d2.atoms,f) && 
+typeof(getfield(d1.atoms,f)) == typeof(getfield(d2.atoms,f)) for f in fieldnames(typeof(d1.atoms))])
 for (d1,d2) in zip(data1,data2)])
