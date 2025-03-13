@@ -17,7 +17,7 @@ fdata = Dict("train" => rdata[1:n_train],
 ```
 
 ## Specify the Friction Model
-Next, we specify the matrix models that will make up our friction model. In this case we only specify the single matrix model `m_equ`, which being of the type `RWCMatrixModel` is based on a row-wise coupling. 
+Next, we specify the matrix models that will make up our friction model. In this case we only specify the single matrix model `m_equ`, which being of the type [RWCMatrixModel](@ref) is based on a row-wise coupling. Alternative for building a friction model with a pairwise coupling is provided in [the last of section of this working example](@ref fitting-pairwise-coupling).
 ```julia
 property = EuclideanMatrix()
 species_friction = [:H]
@@ -119,4 +119,37 @@ The diffusion coefficient matrix $\Sigma$ can also be used to efficiently genera
 R = randf(fm,Σ)
 ```
 
+## [Friction Model with a Pairwise Coupling](@id fitting-pairwise-coupling)
+Instead of using a row-wise coupling, we can also use a pairwise coupling to construct a friction model. The following code produces a friction model with a pairwise coupling:
+```julia
+property = EuclideanMatrix()
+species_friction = [:H]
+species_env = [:Cu]
+m_equ = RWCMatrixModel(property, species_friction, species_env;
+    species_substrat = [:Cu],
+    rcut = 5.0, 
+    maxorder = 2, 
+    maxdeg = 5,
+);
 
+m_equ = PWCMatrixModel(property, species_friction,  species_env;
+        z2sym = NoZ2Sym(), 
+        speciescoupling = SpeciesUnCoupled(),
+        species_substrat = [:Cu],
+        n_rep = 1,
+        maxorder=2, 
+        maxdeg=5, 
+        rcut= 5.0, 
+    );
+
+m_equ0 = OnsiteOnlyMatrixModel(property, species_friction,  species_env;
+    species_substrat=[:Cu], 
+    id=:equ0, 
+    n_rep = 1, 
+    rcut = rcut, 
+    maxorder=2, 
+    maxdeg=5
+);
+
+fm= FrictionModel((mequ_off = m_equ, mequ_on=m_equ0)); 
+```
