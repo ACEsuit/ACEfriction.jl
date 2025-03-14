@@ -65,8 +65,10 @@ function save_h5fdata(rdata::Vector{FrictionData}, filename::String )
             for (k,x) in enumerate(d.atoms.X)
                 dset_pos[k,:] = x
             end
+            write_attribute(dset_pos, "column_major", true)
             write(ag, "atypes", Int.(d.atoms.Z))
             write(ag, "cell", Matrix(d.atoms.cell))
+            write_attribute(ag["cell"], "column_major", true)
             write(ag, "pbc", Array(d.atoms.pbc))
             # write friction data
             fg = create_group(g, "friction_tensor")
@@ -77,6 +79,7 @@ function save_h5fdata(rdata::Vector{FrictionData}, filename::String )
             for (k,v) in enumerate(V)
                 dset_ft[k,:,:] = v
             end
+            write_attribute(dset_ft, "column_major", true)
             write(fg, "ft_mask", d.friction_indices)
         end
     catch 

@@ -14,7 +14,7 @@ using ACEfriction.FrictionFit
 
 using ACEfriction.MatrixModels
 
-fname = "./test/test-data-large"
+fname = "./test/test-data-100"
 filename = string(fname,".h5")
 
 rdata = ACEfriction.DataUtils.load_h5fdata(filename); 
@@ -25,17 +25,35 @@ shuffle!(rng, rdata)
 n_train = Int(ceil(.8 * length(rdata)))
 n_test = length(rdata) - n_train
 
-fdata = Dict("train" => FrictionData.(rdata[1:n_train]), 
-            "test"=> FrictionData.(rdata[n_train+1:end]));
+fdata = Dict("train" => rdata[1:n_train], 
+            "test"=> rdata[n_train+1:end]);
 
 using ACEfriction.AtomCutoffs: SphericalCutoff
 using ACEfriction.MatrixModels: NoZ2Sym, SpeciesUnCoupled
-species_friction = [:H]
-species_env = [:Cu,:H]
-species_substrat = [:Cu]
-rcut = 5.0
-z2sym= NoZ2Sym()
-speciescoupling = SpeciesUnCoupled()
+# property = EuclideanMatrix(Float64)
+# species_friction = [:H]
+# species_env = [:Cu,:H]
+
+# m_equ = PWCMatrixModel(property, species_friction,  species_env;
+#         z2sym = NoZ2Sym(), 
+#         speciescoupling = SpeciesUnCoupled(),
+#         species_substrat = [:Cu],
+#         n_rep = 1,
+#         maxorder=2, 
+#         maxdeg=5, 
+#         rcut= 5.0, 
+#     );
+
+# m_equ0 = OnsiteOnlyMatrixModel(property, species_friction,  species_env;
+#     species_substrat=[:Cu], 
+#     id=:equ0, 
+#     n_rep = 1, 
+#     rcut = rcut, 
+#     maxorder=2, 
+#     maxdeg=5
+# );
+
+# fm= FrictionModel((mequ_off = m_equ, mequ_on=m_equ0)); 
 
 m_equ = PWCMatrixModel(ACE.EuclideanMatrix(Float64),species_friction, species_env;
         z2sym = NoZ2Sym(), 
@@ -88,6 +106,7 @@ end
 
 loss_traj = Dict("train"=>Float64[], "test" => Float64[])
 
+# Note: the following code only works when run in REPL (scoping of the variable 'epoch' fails if run in a global scope.)
 epoch = 0
 batchsize = 10
 nepochs = 10

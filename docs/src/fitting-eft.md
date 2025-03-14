@@ -122,15 +122,9 @@ R = randf(fm,Σ)
 ## [Friction Model with a Pairwise Coupling](@id fitting-pairwise-coupling)
 Instead of using a row-wise coupling, we can also use a pairwise coupling to construct a friction model. The following code produces a friction model with a pairwise coupling:
 ```julia
-property = EuclideanMatrix()
+property = EuclideanMatrix(Float64)
 species_friction = [:H]
-species_env = [:Cu]
-m_equ = RWCMatrixModel(property, species_friction, species_env;
-    species_substrat = [:Cu],
-    rcut = 5.0, 
-    maxorder = 2, 
-    maxdeg = 5,
-);
+species_env = [:Cu,:H]
 
 m_equ = PWCMatrixModel(property, species_friction,  species_env;
         z2sym = NoZ2Sym(), 
@@ -152,4 +146,5 @@ m_equ0 = OnsiteOnlyMatrixModel(property, species_friction,  species_env;
 );
 
 fm= FrictionModel((mequ_off = m_equ, mequ_on=m_equ0)); 
+
 ```
