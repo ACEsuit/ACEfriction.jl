@@ -17,7 +17,7 @@ fdata = Dict("train" => rdata[1:n_train],
 ```
 
 ## Specify the Friction Model
-Next, we specify the matrix models that will make up our friction model. In this case we only specify the single matrix model `m_equ`, which being of the type [RWCMatrixModel](@ref) is based on a row-wise coupling. Alternative for building a friction model with a pairwise coupling is provided in [the last of section of this working example](@ref fitting-pairwise-coupling).
+Next, we specify the matrix models that will make up our friction model. In this case we only specify the single matrix model `m_equ`, which being of the type [RWCMatrixModel](@ref) is based on a row-wise coupling. Alternative code for building a friction model with a pairwise coupling [PWCMatrixModel](@ref) is provided in [the last of section of this working example](@ref fitting-pairwise-coupling).
 ```julia
 property = EuclideanMatrix()
 species_friction = [:H]
@@ -29,7 +29,7 @@ m_equ = RWCMatrixModel(property, species_friction, species_env;
     maxdeg = 5,
 );
 ```
-The first argument, `property`, of the constructor, `RWCMatrixModel`, specifies the equivariance symmetry of blocks. Here, `property` is of type `EuclideanMatrix` specifying each block to  transform like an Euclidean Matrix. In this modeling application, only hydrogen atoms feel friction, which we specify by setting the second argument `species_friction` to `[:H]`. Yet, the friction felt by an hydrogen atom is affected by the presence of both hydrogen atoms and copper atoms in its vicinty, which we specify by setting `species_env` to `[:H, :Cu]`. Furthermore, the physics is such that hydrogen models only feel friction if they are in contact with the metal surface. We specify this by setting `species_substrat = [:Cu]`. For further details and information on the remaining optional arguments see the docomentation of the constructor of [RWCMatrixModel]().
+The first argument, `property`, of the constructor, `RWCMatrixModel`, specifies the equivariance symmetry of blocks. Here, `property` is of type `EuclideanMatrix` specifying each block to  transform like an Euclidean Matrix. In this modeling application, only hydrogen atoms feel friction, which we specify by setting the second argument `species_friction` to `[:H]`. Yet, the friction felt by an hydrogen atom is affected by the presence of both hydrogen atoms and copper atoms in its vicinty, which we specify by setting `species_env` to `[:H, :Cu]`. Furthermore, the physics is such that hydrogen models only feel friction if they are in contact with the metal surface. We specify this by setting `species_substrat = [:Cu]`. For further details and information on the remaining optional arguments see the docomentation of the constructor of [RWCMatrixModel](@ref).
 
 Next we build a friction model from the matrix model(s),
 ```julia
@@ -120,7 +120,7 @@ R = randf(fm,Σ)
 ```
 
 ## [Friction Model with a Pairwise Coupling](@id fitting-pairwise-coupling)
-Instead of using a row-wise coupling, we can also use a pairwise coupling to construct a friction model. The following code produces a friction model with a pairwise coupling:
+Instead of using a row-wise coupling, we can also use a pair-wise coupling to construct a friction model. The following code produces a friction model with a pair-wise coupling:
 ```julia
 property = EuclideanMatrix(Float64)
 species_friction = [:H]
