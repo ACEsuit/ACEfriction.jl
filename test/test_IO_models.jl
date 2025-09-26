@@ -25,7 +25,7 @@ end
 println()
 
 @info "Testing save_dict and load_dict for PWCMatrixModel with SphericalCutoff"
-tmpname = tempname()
+tmpname = string(tempname(),".json")
 save_dict(tmpname, write_dict(fm_pwcsc))
 fm_pwcsc2 = read_dict(load_dict(tmpname))
 for _ in 1:5
@@ -44,7 +44,7 @@ end
 println()
 
 @info "Testing save_dict and load_dict for PWCMatrixModel with EllipsoidCutoff"
-tmpname = tempname()
+tmpname = string(tempname(),".json")
 save_dict(tmpname, write_dict(fm_pwcec))
 fm_pwcec2 = read_dict(load_dict(tmpname))
 for _ in 1:5

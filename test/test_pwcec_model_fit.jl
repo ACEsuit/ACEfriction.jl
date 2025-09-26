@@ -63,7 +63,7 @@ m_equ0 = OnsiteOnlyMatrixModel(EuclideanMatrix(Float64), species_friction, speci
 fm= FrictionModel((mequ_off=m_equ, mequ_on= m_equ0)); 
 
 @info "Testing save_dict and load_dict"
-tmpname = tempname()
+tmpname = string(tempname(),".json")
 save_dict(tmpname, write_dict(fm))
 fm2 = read_dict(load_dict(tmpname))
 for _ in 1:5

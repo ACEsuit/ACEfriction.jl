@@ -62,7 +62,7 @@ fm= FrictionModel((mequ_off=m_equ_off, m_equ_on=m_equ_on));
 
 
 @info "Testing save_dict and load_dict"
-tmpname = tempname()
+tmpname = string(tempname(),".json")
 save_dict(tmpname, write_dict(fm))
 fm2 = read_dict(load_dict(tmpname))
 for _ in 1:5
