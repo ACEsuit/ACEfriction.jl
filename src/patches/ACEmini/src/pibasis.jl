@@ -1,0 +1,355 @@
+
+export PIBasis
+
+
+# ---------------------- Implementation of the PIBasisSpec
+
+"""
+`struct PIBasisSpec`
+"""
+struct PIBasisSpec
+   orders::Vector{Int}     # order (length) of ith basis function
+   iAA2iA::Matrix{Int}     # where in A can we find the ith basis function
+end
+
+==(B1::PIBasisSpec, B2::PIBasisSpec) = _allfieldsequal(B1, B2)
+
+Base.length(spec::PIBasisSpec) = length(spec.orders)
+
+maxcorrorder(spec::PIBasisSpec) = size(spec.iAA2iA, 2)
+
+function _get_pibfcn(spec0, Aspec, vv)
+   vv1 = vv[2:end]
+   vvnz = vv1[findall(vv1 .!= 0)]
+   return (spec0[vv[1]], Aspec[vvnz])
+end
+
+function _get_pibfcn(Aspec, vv)
+   vvnz = vv[findall(vv .!= 0)]
+   return Aspec[vvnz]
+end
+
+# TODO: maybe instead of property == nothing, there should be a 
+#       generic property with no symmetry attached to it. 
+
+function PIBasisSpec( basis1p::OneParticleBasis,
+                      symgrp::SymmetryGroup, 
+                      Bsel::DownsetBasisSelector;
+                      property = nothing,
+                      filterfun = _->true,
+                      init1pbasis = true )
+   
+   # we initialize the 1p-basis here; to prevent this it must be manually 
+   # avoided by passing in init1pbasis = false 
+   if init1pbasis
+      init1pspec!(basis1p, Bsel)
+   end
+
+   # get the basis spec of the one-particle basis
+   #  Aspec[i] described the basis function that will get written into A[i]
+   Aspec = get_spec(basis1p)
+
+   # we assume that `Aspec` is sorted by degree, but best to double-check this
+   # since the notion of degree used to construct `Aspec` might be different
+   # from the one used to construct AAspec.
+   if !issorted(Aspec; by = b -> level(b, Bsel, basis1p))
+      error("""PIBasisSpec : AAspec construction failed because Aspec is not
+               sorted by degree. This could e.g. happen if an incompatible
+               notion of degree was used to construct the 1-p basis spec.""")
+   end
+   # An AA basis function is given by a tuple 𝒗 = vv. Each index 𝒗ᵢ = vv[i]
+   # corresponds to the basis function Aspec[𝒗ᵢ] and the tuple
+   # 𝒗 = (𝒗₁, ...) to a product basis function
+   #   ∏ A_{vₐ}
+   tup2b = vv -> _get_pibfcn(Aspec, vv)
+
+   #  degree or level of a basis function ↦ is it admissible?
+   admissible = bb -> (level(bb, Bsel, basis1p) <= maxlevel(bb, Bsel, basis1p))
+
+   if property != nothing
+      filter1 = bb -> filterfun(bb) && filter(bb, Bsel, basis1p) && filter(property, symgrp, bb)
+   else
+      filter1 = bb -> filterfun(bb) && filter(bb, Bsel, basis1p) 
+   end
+
+
+   # we can now construct the basis specification; the `ordered = true`
+   # keyword signifies that this is a permutation-invariant basis
+   maxord = maxorder(Bsel)
+   AAspec = gensparse(; NU = maxorder(Bsel),
+                        tup2b = tup2b,
+                        admissible = admissible,
+                        ordered = true,
+                        maxvv = [length(Aspec) for _=1:maxord],
+                        filter = filter1)
+
+   return PIBasisSpec(AAspec)
+end
+
+
+function PIBasisSpec(AAspec)
+   orders = zeros(Int, length(AAspec))
+   iAA2iA = zeros(Int, (length(AAspec), length(AAspec[1])))
+   for (iAA, vv) in enumerate(AAspec)
+      # we use reverse because gensparse constructs the indices in
+      # ascending order, but we want descending here.
+      # (I don't remember why though)
+      iAA2iA[iAA, :] .= reverse(vv)
+      orders[iAA] = length( findall( vv .!= 0 ) )
+   end
+   return PIBasisSpec(orders, iAA2iA)
+end
+
+
+get_spec(AAspec::PIBasisSpec, i::Integer) = AAspec.iAA2iA[i, 1:AAspec.orders[i]]
+
+# ------------------ PISpec sparsification 
+
+"""
+returns a new `PIBasisSpec` constructed from the old one, but keeping only 
+the basis indices `Ikeep`. This maintains the order of the basis functions. 
+"""
+sparsify(spec::PIBasisSpec, Ikeep::AbstractVector{<: Integer}) = 
+      PIBasisSpec(spec.orders[Ikeep], spec.iAA2iA[Ikeep, :])
+
+
+
+function _fix_A_indices!(spec::PIBasisSpec, new_inds::AbstractVector{<: Integer})
+   for iAA = 1:size(spec.iAA2iA, 1)
+      for α = 1:spec.orders[iAA]
+         vα = spec.iAA2iA[iAA, α]
+         new_vα = new_inds[vα]
+         @assert new_vα > 0 
+         spec.iAA2iA[iAA, α] = new_vα
+      end
+   end
+   return nothing 
+end
+
+# --------------------------------- PIBasis implementation
+
+
+"""
+`mutable struct PIBasis:` implementation of a permutation-invariant
+basis based on the density projection trick.
+
+The standard constructor is
+```
+PIBasis(basis1p, N, D, maxdeg)
+```
+* `basis1p` : a one-particle basis
+* `N` : maximum interaction order
+* `D` : an abstract degee specification, e.g., SparsePSHDegree
+* `maxdeg` : the maximum polynomial degree as measured by `D`
+"""
+mutable struct PIBasis{BOP, REAL} <: ACEBasis
+   basis1p::BOP             # a one-particle basis
+   spec::PIBasisSpec
+   real::REAL     # could be `real` or `identity` to keep AA complex
+end               # TODO -> chain?? 
+
+cutoff(basis::PIBasis) = cutoff(basis.basis1p)
+
+==(B1::PIBasis, B2::PIBasis) = 
+      ( (B1.basis1p == B2.basis1p) && 
+        (B1.spec == B2.spec) && 
+        (B1.real == B2.real) )
+
+
+Base.length(basis::PIBasis) = length(basis.spec)
+
+# default symmetry group 
+PIBasis(basis1p, Bsel::AbstractBasisSelector; kwargs...) = 
+   PIBasis(basis1p, O3(), Bsel; kwargs...)
+
+PIBasis(basis1p, symgrp, Bsel::AbstractBasisSelector; 
+        isreal = false, kwargs...) =
+   PIBasis(basis1p, 
+           PIBasisSpec(basis1p, symgrp, Bsel; kwargs...),
+           isreal ? Base.real : Base.identity )
+
+get_spec(pibasis::PIBasis) =
+   [ get_spec(pibasis, i) for i = 1:length(pibasis) ]
+
+get_spec(pibasis::PIBasis, i::Integer) =
+      get_spec.( Ref(pibasis.basis1p), get_spec(pibasis.spec, i) )
+
+setreal(basis::PIBasis, isreal::Bool) =
+   PIBasis(basis.basis1p, basis.spec, isreal)
+
+maxcorrorder(basis::PIBasis) = maxcorrorder(basis.spec)
+
+
+# ------------------ sparsification 
+
+function sparsify!(basis::PIBasis, Ikeep::AbstractVector{<: Integer}) 
+   basis.spec = sparsify(basis.spec, Ikeep)
+   return basis 
+end 
+
+"""
+This should allow the 1p basis to sparsify itself, then feed back to the 
+pibasis what the correct indices are.
+"""
+function clean_1pbasis!(basis::PIBasis)
+   spec = get_spec(basis)
+   B1p = basis.basis1p
+   spec1p = NamedTuple[]
+   for bb in spec 
+      append!(spec1p, bb)
+   end
+   identity.(unique!(spec1p))
+   # sparsify the product 1p basis 
+   _, new_inds = sparsify!(basis.basis1p, spec1p)
+   # now fix the indexing of the PIBasis specification 
+   _fix_A_indices!(basis.spec, new_inds)
+   return basis 
+end
+
+
+# -------------------
+
+
+_scaling_absvalue(x::Number) = abs(x)
+_scaling_absvalue(x::Symbol) = 0
+
+
+# TODO: this is a hack; cf. #68
+function scaling(pibasis::PIBasis, p)
+   ww = zeros(Float64, length(pibasis))
+   bspec = get_spec(pibasis)
+   for i = 1:length(pibasis)
+      for b in bspec[i]
+         # TODO: revisit how this should be implemented for a general basis
+         ww[i] += sum(x -> _scaling_absvalue(x)^p, b)  #  abs.(values(b)).^p
+      end
+   end
+   return ww
+end
+
+
+
+# -------------------------------------------------
+# FIO codes
+
+write_dict(basis::PIBasis) =
+   Dict(  "__id__" => "ACE_PIBasis",
+         "basis1p" => write_dict(basis.basis1p),
+            "spec" => write_dict(basis.spec),
+            "real" => basis.real == Base.real ? true : false )
+
+read_dict(::Val{:ACE_PIBasis}, D::Dict) =
+   PIBasis( read_dict(D["basis1p"]),
+            read_dict(D["spec"]),
+            D["real"] ? Base.real : Base.identity )
+
+write_dict(spec::PIBasisSpec) =
+   Dict( "__id__" => "ACE_PIBasisSpec",
+         "orders" => spec.orders,
+         "iAA2iA" => write_dict(spec.iAA2iA) )
+
+read_dict(::Val{:ACE_PIBasisSpec}, D::Dict) =
+   PIBasisSpec( D["orders"], read_dict(D["iAA2iA"]) )
+
+
+# -------------------------------------------------
+# Evaluation codes
+
+function evaluate!(AA, basis::PIBasis, config::UConfig)
+   A = evaluate(basis.basis1p, config)
+   evaluate!(AA, basis, A)
+   release!(A) 
+   return AA 
+end
+
+function evaluate!(AA, basis::PIBasis, A::AbstractVector{<: Number})
+   fill!(AA, 1)
+   for iAA = 1:length(basis)
+      aa = one(eltype(A))
+      for t = 1:basis.spec.orders[iAA]
+         aa *= A[ basis.spec.iAA2iA[ iAA, t ] ]
+      end
+      AA[iAA] = basis.real(aa)
+   end
+   return AA
+end
+
+_valtype(basis::PIBasis, A::AbstractVector{<: Number}) = 
+      basis.real(eltype(A))
+
+# draft of defining bases via chains
+function evaluate(basis::PIBasis, A::AbstractVector{<: Number})
+   VT = _valtype(basis, A)   
+   AA = Vector{VT}(undef, length(basis)) 
+   evaluate!(AA, basis, A) 
+   return AA 
+end
+
+# draft of defining bases via chains
+function evaluate(basis::PIBasis, config::UConfig) 
+   A = evaluate(basis.basis1p, config)
+   AA = evaluate(basis, A)
+   release!(A) 
+   return AA 
+end
+
+
+function _AA_local_adjoints!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   if ord == 1
+      return _AA_local_adjoints_1!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   elseif ord == 2
+      return _AA_local_adjoints_2!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   else 
+      return _AA_local_adjoints_x!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   end
+end
+
+function _AA_local_adjoints_1!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   @inbounds dAAdA[1] = 1 
+   @inbounds A1 = A[iAA2iA[iAA, 1]]
+   return _real(A1)
+end
+
+function _AA_local_adjoints_2!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   @inbounds A1 = A[iAA2iA[iAA, 1]]
+   @inbounds A2 = A[iAA2iA[iAA, 2]]
+   @inbounds dAAdA[1] = A2 
+   @inbounds dAAdA[2] = A1
+   return _real(A1 * A2)
+end
+
+function _AA_local_adjoints_x!(dAAdA, A, iAA2iA, iAA, ord, _real)
+   @assert length(dAAdA) >= ord
+   @assert ord >= 2
+   # TODO - optimize a bit more? can move one operation out of the loop
+   # Forward pass:
+   @inbounds A1 = A[iAA2iA[iAA, 1]]
+   @inbounds A2 = A[iAA2iA[iAA, 2]]
+   @inbounds dAAdA[1] = 1
+   @inbounds dAAdA[2] = A1
+   @inbounds AAfwd = A1 * A2
+   @inbounds for a = 3:ord-1
+      dAAdA[a] = AAfwd
+      AAfwd *= A[iAA2iA[iAA, a]]
+   end
+   @inbounds dAAdA[ord] = AAfwd
+   @inbounds Aend = A[iAA2iA[iAA, ord]]
+   aa = _real(AAfwd * Aend)
+   # backward pass
+   @inbounds AAbwd = Aend 
+   @inbounds for a = ord-1:-1:3
+      dAAdA[a] *= AAbwd
+      AAbwd *= A[iAA2iA[iAA, a]]
+   end
+   dAAdA[2] *= AAbwd 
+   AAbwd *= A2 
+   dAAdA[1] *= AAbwd 
+
+   return aa 
+end
+
+
+_acquire_dAAdA!(basis::PIBasis, A) = Vector{eltype(A)}(undef, maxcorrorder(basis))
+   
+
+
