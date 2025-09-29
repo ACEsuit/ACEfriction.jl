@@ -5,9 +5,9 @@ module OrthPolys
 using SparseArrays
 using LinearAlgebra: dot
 
-import ACE
+import ..ACE
 
-import ACE: evaluate!, 
+import ..ACE: evaluate!, 
             evaluate, 
             # frule_evaluate, 
             read_dict, write_dict,

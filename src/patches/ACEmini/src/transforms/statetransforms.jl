@@ -1,6 +1,6 @@
 using StaticArrays
-import ACE 
-import ACE: evaluate, 
+import ..ACE 
+import ..ACE: evaluate, 
             write_dict, read_dict, 
             DState
             # frule_evaluate! 

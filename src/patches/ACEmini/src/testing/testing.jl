@@ -3,12 +3,12 @@
 module Testing
 
 using Test
-import ACE
-
+import ..ACE
+#using ..ACE: @extimports, @aceimports
 ACE.@extimports
 ACE.@aceimports
 
-import ACEbase, ACE.ACEbase024
+import ACEbase, ..ACE.ACEbase024
 import ACEbase.Testing: print_tf, test_fio
 
 export print_tf, test_fio, test_transform
@@ -61,7 +61,7 @@ export print_tf, test_fio, test_transform
 # ---------- code for transform tests
 
 # import ForwardDiff
-import ACE: evaluate, inv_transform
+import ..ACE: evaluate, inv_transform
 
 function test_transform(T, rrange, ntests = 100)
 

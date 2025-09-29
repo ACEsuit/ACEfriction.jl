@@ -3,9 +3,9 @@ using ACEbase: @def
 
 @def aceimports begin
 
-   import ACE
+   import .ACE
 
-   import ACE:   PIBasis,
+   import .ACE:   PIBasis,
                  get_spec,
                  degree,
                  gensparse,

@@ -1,6 +1,7 @@
-import ACE.OrthPolys: TransformedPolys, OrthPolyBasis
-import ACE.Transforms: GetNorm
-
+import .ACE.OrthPolys: TransformedPolys, OrthPolyBasis
+import .ACE.Transforms: GetNorm
+using .ACE: inv_transform
+using .ACE
 @doc raw"""
 `Rn1pBasis`
 

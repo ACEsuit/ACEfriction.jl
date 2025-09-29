@@ -2,15 +2,15 @@
 
 
 import Base:   ==
-import ACE: read_dict, write_dict, 
-       transform, transform_d, transform_dd, inv_transform
+import ..ACE: read_dict, write_dict, 
+       transform, inv_transform
        
 export polytransform, morsetransform, agnesitransform
 
 abstract type DistanceTransform end        
 
 # ----- new transforms implementation 
-import ACE: λ 
+import ..ACE: λ 
 
 @deprecate PolyTransform(p, r0) polytransform(p, r0)
 polytransform(p, r0) = λ("r -> ((1+$r0)/(1+r))^$p")
@@ -42,6 +42,6 @@ end
 # ------------------------------------------------------
 # generic ad codes for distance transforms 
 
-import ACE:  evaluate 
+import ..ACE:  evaluate 
 
 evaluate(trans::DistanceTransform, r::Number) = transform(trans, r)

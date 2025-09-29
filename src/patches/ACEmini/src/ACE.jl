@@ -79,7 +79,7 @@ include("chain.jl")
 
 
 include("rotations3d.jl")
-using ACE.Rotations3D
+using .ACE.Rotations3D
 
 include("polynomials/wigner.jl")
 
@@ -97,11 +97,13 @@ include("prototypes.jl")
 #  - a state X into a variable that can be fed into a basis 
 #  - distance transforms 
 #  - transformations of an inner basis, e.g. linear transformations
-include("transforms/transforms.jl"); @reexport using ACE.Transforms
+include("transforms/transforms.jl") 
+@reexport using .ACE.Transforms
 
 # basic polynomial building blocks
 include("polynomials/sphericalharmonics.jl")
-include("polynomials/orthpolys.jl"); @reexport using ACE.OrthPolys
+include("polynomials/orthpolys.jl")
+@reexport using .ACE.OrthPolys
 
 # 1p basis wrappers 
 include("b1pcomponent.jl")
@@ -139,11 +141,11 @@ include("evaluator.jl")
 # include("grapheval.jl")
 
 include("utils/random.jl")
-@reexport using ACE.Random
+@reexport using .ACE.Random
 
 
 include("utils/utils.jl")
-@reexport using ACE.Utils
+@reexport using .ACE.Utils
 
 include("testing/testing.jl")
 

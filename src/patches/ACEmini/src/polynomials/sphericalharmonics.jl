@@ -5,15 +5,17 @@ module SphericalHarmonics
 
 using StaticArrays, LinearAlgebra
 
-import ACE, ACEbase, ACE.ACEbase024 
+import ..ACE, ACEbase, ..ACE.ACEbase024 
 
-import ACE: evaluate!,
+import ..ACE: evaluate!,
 			   write_dict, read_dict,
 				ACEBasis, 
 				acquire!, release!, 
 				evaluate 
 
-import ACE: VectorPool, ArrayCache 
+import ..ACE: VectorPool, ArrayCache 
+
+import ..ACE: degree
 
 export SHBasis
 

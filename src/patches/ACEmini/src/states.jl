@@ -412,7 +412,7 @@ promote_rule(::Union{Type{S}, Type{PositionState{S}}},
 # ------------------ Basic Configurations Code 
 # TODO: get rid of this?  
 
-import ACE.ACEbase024: AbstractConfiguration
+import .ACE.ACEbase024: AbstractConfiguration
 export ACEConfig 
 
 """

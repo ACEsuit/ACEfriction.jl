@@ -1,7 +1,7 @@
 
 
-import ACE.OrthPolys: OrthPolyBasis, discrete_jacobi
-
+import .ACE.OrthPolys: OrthPolyBasis, discrete_jacobi
+using .ACE: GetVal, GetVali
 @doc raw"""
 `Scal1pBasis`
 
@@ -11,7 +11,7 @@ one-particle basis.
 """
 function Scal1pBasis(varsym::Symbol, varidx::Union{Integer, Nothing}, idxsym::Symbol, 
                      P, label::String = "P$idxsym", trans=nothing)
-   getval = isnothing(varidx) ? ACE.GetVal{varsym}() : ACE.GetVali{varsym, varidx}()
+   getval = isnothing(varidx) ? GetVal{varsym}() : GetVali{varsym, varidx}()
    spec = [ NamedTuple{(idxsym,)}((i,)) for i = 1:length(P) ]
    degrees = collect(0:(length(P)-1))
    P1 = (trans == nothing) ? P : chain(trans, P)

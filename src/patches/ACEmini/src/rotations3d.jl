@@ -5,7 +5,7 @@ module Rotations3D
 using StaticArrays
 using LinearAlgebra: norm, rank, svd, Diagonal, tr
 
-using ACE: coco_zeros, coco_init, coco_dot, coco_filter, AbstractProperty, 
+using ..ACE: coco_zeros, coco_init, coco_dot, coco_filter, AbstractProperty, 
 			  coco_type 
 
 export ClebschGordan, Rot3DCoeffs, ri_basis, rpi_basis, R3DC, Rot3DCoeffsEquiv

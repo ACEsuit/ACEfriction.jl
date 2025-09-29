@@ -342,14 +342,14 @@ function coco_init(phi::SymmetricEuclideanMatrix{CT}, l, m, μ, T, A) where {CT<
       : coco_zeros(phi, l, m, μ, T, A)  )
 end
 
-function ACE.write_dict(φ::SymmetricEuclideanMatrix{T}) where {T}
+function write_dict(φ::SymmetricEuclideanMatrix{T}) where {T}
    Dict("__id__" => "ACE_SymmetricEuclideanMatrix",
          "valr" => write_dict(real.(Matrix(φ.val))),
          "vali" => write_dict(imag.(Matrix(φ.val))),
             "T" => write_dict(T))         
 end 
 
-function ACE.read_dict(::Val{:ACE_SymmetricEuclideanMatrix}, D::Dict)
+function read_dict(::Val{:ACE_SymmetricEuclideanMatrix}, D::Dict)
    T = read_dict(D["T"])
    valr = SMatrix{3, 3, T, 9}(read_dict(D["valr"]))
    vali = SMatrix{3, 3, T, 9}(read_dict(D["vali"]))
@@ -482,7 +482,7 @@ rot3Dcoeffs(::SphericalVector, T::DataType=Float64) = Rot3DCoeffs(T)
 
 const __rotcoeff_inv = Rotations3D.Rot3DCoeffs(Invariant())
 
-using ACE.Wigner: wigner_D_indices
+using .ACE.Wigner: wigner_D_indices
 
 # Equation (1.2) - vector value coupling coefficients
 # ∫_{SO3} D^{ll}_{μμmm} D^*(Q) e^t dQ -> 2L+1 column vector
@@ -657,7 +657,7 @@ function coco_init(φ::SphericalMatrix{L1,L2}, l, m, μ, T, A) where{L1,L2}
 end
 
 coco_init(φ::SphericalMatrix{L1,L2}) where{L1,L2} = 
-				  L1==L2 ? reshape([ACE.SphericalMatrix(SMatrix{2L1+1,2L2+1,ComplexF64}(I(2L1+1)),Val(L1),Val(L2))],1,1) : []
+				  L1==L2 ? reshape([SphericalMatrix(SMatrix{2L1+1,2L2+1,ComplexF64}(I(2L1+1)),Val(L1),Val(L2))],1,1) : []
 
 coco_zeros(φ::TP, ll, mm, kk, T, A) where{TP <: SphericalMatrix} =
             zeros(TP, length(_select_ab(φ, sum(mm), sum(kk))))

@@ -2,7 +2,7 @@
 # early ideas towards a composition, or chain implementation. 
 # not yet needed, but will explore further. 
 
-import ACE: evaluate 
+import ..ACE: evaluate 
 import Base: ∘
 
 struct Compose{TF1, TF2}

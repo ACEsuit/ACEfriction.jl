@@ -2,9 +2,9 @@
 
 module Utils
 
-import ACE
+import ..ACE
 
-import ACE: polytransform, discrete_jacobi, Rn1pBasis,
+import ..ACE: polytransform, discrete_jacobi, Rn1pBasis,
             init1pspec!, Ylm1pBasis,
             Product1pBasis, SimpleSparseBasis
 

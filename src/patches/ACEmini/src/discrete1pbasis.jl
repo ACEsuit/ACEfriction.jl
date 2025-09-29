@@ -1,7 +1,7 @@
 
 
-import ACE.ACEbase024: Discrete1pBasis
-import ACE: evaluate, evaluate!
+import .ACE.ACEbase024: Discrete1pBasis
+import .ACE: evaluate, evaluate!
 
 export Categorical1pBasis
 
@@ -105,7 +105,7 @@ function evaluate(basis::Categorical1pBasis, X::AbstractState)
    return evaluate!(A, basis, X)
 end
 
-function ACE.evaluate!(A, basis::Categorical1pBasis, X::AbstractState)
+function evaluate!(A, basis::Categorical1pBasis, X::AbstractState)
    fill!(A, false)
    A[val2i(basis.categories, _val(X, basis))] = true
    return A

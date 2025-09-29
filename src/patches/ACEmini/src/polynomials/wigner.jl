@@ -5,7 +5,7 @@
 module Wigner
 
 using StaticArrays
-using ACE: rand_rot, rand_refl
+using ..ACE: rand_rot, rand_refl
 
 __L2syms = [:s, :p, :d, :f, :g, :h, :i, :k]
 __syms2L = Dict( [sym => L-1 for (L, sym) in enumerate(__L2syms)]... )
