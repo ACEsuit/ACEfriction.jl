@@ -1,14 +1,14 @@
 
 
 ##
-import ACE
+import ACEfriction.ACE
 using LinearAlgebra, StaticArrays, BenchmarkTools, Test, Printf
-using ACE.SphericalHarmonics
-using ACE.SphericalHarmonics: dspher_to_dcart, SphericalCoords,
+using  ACEfriction.ACE.SphericalHarmonics
+using ACEfriction.ACE.SphericalHarmonics: dspher_to_dcart, SphericalCoords,
                cart2spher, spher2cart
-using ACE: evaluate
+using ACEfriction.ACE: evaluate
 # evaluate_d, evaluate_ed removed - derivative functionality has been removed
-using ACE.Testing
+using ACEfriction.ACE.Testing
 
 verbose = false
 

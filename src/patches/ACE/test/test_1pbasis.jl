@@ -2,9 +2,9 @@
 
 ##
 
-using ACE
+using ACEfriction.ACE
 using Printf, Test, LinearAlgebra, StaticArrays
-using ACE: evaluate, evaluate_d, evaluate_ed, 
+using ACEfriction.ACE: evaluate, 
       Rn1pBasis, Ylm1pBasis,
       PositionState, Product1pBasis, getlabel, get_spec, 
       State, DState, rand_vec3, rand_radial, rand_sphere, Scal1pBasis, 

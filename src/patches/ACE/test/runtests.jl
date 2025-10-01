@@ -1,6 +1,6 @@
 
 
-using ACE, Test, Printf, LinearAlgebra, StaticArrays, BenchmarkTools
+using ACEfriction.ACE, Test, Printf, LinearAlgebra, StaticArrays, BenchmarkTools
 
 ##
 @testset "ACE.jl" begin

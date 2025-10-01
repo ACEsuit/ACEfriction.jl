@@ -5,6 +5,7 @@ version = "0.0.3"
 
 [deps]
 ACEbase = "14bae519-eb20-449c-a949-9c58ed33163e"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
@@ -31,6 +32,7 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
 
 [compat]
+BenchmarkTools = "1.6.0"
 Combinatorics = "1.0.3"
 DataStructures = "0.19.1"
 JuLIP = "0.16"

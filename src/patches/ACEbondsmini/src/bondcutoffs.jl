@@ -3,13 +3,13 @@ module BondCutoffs
 # export AbstractCutoff, EllipsoidCutoff, SphericalCutoff, DSphericalCutoff
 # export env_filter, env_transform, env_cutoff
 
-using ACE
-using ACE: State, DState, ForwardDiff
+using ACEfriction.ACE
+using ACEfriction.ACE: State, DState, ForwardDiff
 using JuLIP: AtomicNumber, chemical_symbol
 using StaticArrays
 using LinearAlgebra: norm, I
 
-import ACE: write_dict, read_dict
+import ACEfriction.ACE: write_dict, read_dict
 
 export write_dict, read_dict, EllipsoidCutoff, CylindricalCutoff
 

@@ -1,4 +1,4 @@
-using ACE
+using ..ACE
 export modify_Rn, modify_species
 
 function modify_Rn(basis::ACE.SymmetricBasis; kwargs... ) 

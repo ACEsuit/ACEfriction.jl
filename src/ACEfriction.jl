@@ -1,14 +1,14 @@
 module ACEfriction
 
-include("./patches/ACEmini/src/ACE.jl")
-# include("./patches/ACEbondsmini/src/ACEbonds.jl")
+include("./patches/ACE/src/ACE.jl")
+include("./patches/ACEbondsmini/src/ACEbonds.jl")
 # # utility functions for conversion of arrays, manipulation of bases and generation of bases for bond environments
-# include("./utils/utils.jl")
+include("./utils/utils.jl")
 # # utility functions for importing and internally storing data of friction tensors/matrices 
-# include("./datautils.jl")
+include("./datautils.jl")
 
-# include("./atomcutoffs.jl")
-# include("./matrixmodels/matrixmodels.jl")
+include("./atomcutoffs.jl")
+include("./matrixmodels/matrixmodels.jl")
 # include("./frictionmodels.jl")
 # include("./frictionfit/frictionfit.jl")
 # include("./matrixmodelsutils.jl")

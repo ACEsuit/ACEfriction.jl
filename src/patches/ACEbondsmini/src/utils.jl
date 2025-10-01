@@ -1,5 +1,5 @@
-using ACEbonds.BondSelectors: EllipsoidBondBasis
-using ACE
+using .ACEbonds.BondSelectors: EllipsoidBondBasis
+using ACEfriction.ACE
 
 export SymmetricEllipsoidBondBasis
 

@@ -1,6 +1,6 @@
 module ACEbonds
 
-import ACE 
+import ACEfriction.ACE 
 
 include("envelopes.jl") # MS: I believe code in this file is depreciated? 
 

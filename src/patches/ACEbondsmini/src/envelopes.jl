@@ -2,7 +2,7 @@ module BondEnvelopes
 
 using LinearAlgebra: norm, dot 
 
-import ACE: _inner_evaluate, B1pMultiplier, AbstractState
+import ACEfriction.ACE: _inner_evaluate, B1pMultiplier, AbstractState
 
 
 """

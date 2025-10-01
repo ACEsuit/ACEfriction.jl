@@ -1,10 +1,10 @@
 using JuLIP, StaticArrays, LinearAlgebra
-using ACE: State, filter 
+using ACEfriction.ACE: State, filter 
 using JuLIP.Potentials: neigsz
 using JuLIP: Atoms
 # using ACE: BondEnvelope, filter, State, CylindricalBondEnvelope
-import ACEbonds.BondCutoffs: env_cutoff
-using ACEbonds.BondCutoffs: AbstractBondCutoff, env_filter, EllipsoidCutoff
+import .ACEbonds.BondCutoffs: env_cutoff
+using .ACEbonds.BondCutoffs: AbstractBondCutoff, env_filter, EllipsoidCutoff
 
 _msort(z1,z2) = (z1<=z2 ? (z1,z2) : (z2,z1)) #TODO: this is hack. Need to either not use it here or define it once across all packages.
 #env_cutoff(cutoff::EllipsoidCutoff) = max(cutoff.rcutbond*.5 + cutoff.zcutenv, sqrt((cutoff.rcutbond*.5)^2+ cutoff.rcutenv^2))

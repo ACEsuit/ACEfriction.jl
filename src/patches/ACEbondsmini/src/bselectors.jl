@@ -1,6 +1,6 @@
 module BondSelectors
 
-import ACE: AbstractSparseBasis, maxorder, Prodb, Onepb, OneParticleBasis, 
+import ACEfriction.ACE: AbstractSparseBasis, maxorder, Prodb, Onepb, OneParticleBasis, 
             degree, CategorySparseBasis, SparseBasis 
 import Base: filter 
 

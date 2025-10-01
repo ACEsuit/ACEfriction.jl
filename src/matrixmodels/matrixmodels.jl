@@ -12,9 +12,9 @@ export matrix, basis, params, nparams, set_params!, get_id
 using LinearAlgebra: Diagonal
 using JuLIP, ACE, ACEbonds
 using JuLIP: chemical_symbol
-using ACE: SymmetricBasis, LinearACEModel, evaluate
-using ACEbonds: bonds, env_cutoff
-using ACEbonds.BondCutoffs: EllipsoidCutoff
+using ..ACE: SymmetricBasis, LinearACEModel, evaluate
+using ..ACEbonds: bonds, env_cutoff
+using ..ACEbonds.BondCutoffs: EllipsoidCutoff
 using LinearAlgebra
 using StaticArrays
 using SparseArrays
@@ -23,16 +23,16 @@ using ACEfriction.AtomCutoffs
 using ACEfriction.mUtils: reinterpret
 
 import ACEbase: evaluate, evaluate!
-import ACE: scaling
-import ACE: nparams, params, set_params!
-import ACE: write_dict, read_dict
-import ACEbonds: env_cutoff
+import ..ACE: scaling
+import ..ACE: nparams, params, set_params!
+import ..ACE: write_dict, read_dict
+import ..ACEbonds: env_cutoff
 
 using ACEbonds.BondCutoffs 
 using ACEbonds.BondCutoffs: AbstractBondCutoff
 
 using ACEfriction.AtomCutoffs: SphericalCutoff
-using ACE
+using ..ACE
 using ACEfriction.MatrixModels
 #import ACEbonds: SymmetricEllipsoidBondBasis
 include("../patches/acebonds_basisselectors.jl")

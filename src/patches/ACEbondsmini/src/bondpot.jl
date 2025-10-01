@@ -1,7 +1,7 @@
 
-using ACEbonds.BondCutoffs: env_transform, rrule_env_transform, env_filter, AbstractBondCutoff
+using .ACEbonds.BondCutoffs: env_transform, rrule_env_transform, env_filter, AbstractBondCutoff
 
-import ACE: params, nparams, set_params!
+import ACEfriction.ACE: params, nparams, set_params!
 
 export params, nparams, set_params!
 # TODO: extend implementation to allow for LinearModels with multiple featuers. 
@@ -73,7 +73,7 @@ _get_basisinds(V::ACEBondPotentialBasis) = V.inds
 
 import JuLIP: energy
 #, forces, virial 
-import ACE: evaluate #, evaluate_d, grad_config
+import ACEfriction.ACE: evaluate #, evaluate_d, grad_config
 
 
 # overload the initiation of the bonds iterator to correctly extract the 

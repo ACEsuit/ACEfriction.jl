@@ -1,7 +1,7 @@
 module AtomCutoffs
 
-import ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
-import ACE: read_dict, write_dict
+import ..ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
+import ..ACE: read_dict, write_dict
 export read_dict, write_dict
 
 export SphericalCutoff, AbstractCutoff
@@ -9,7 +9,7 @@ export env_filter, env_transform, env_cutoff
 
 using StaticArrays
 using JuLIP: AtomicNumber, chemical_symbol
-using ACE
+using ..ACE
 
 struct SphericalCutoff{T}
     rcut::T
