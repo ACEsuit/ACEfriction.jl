@@ -14,18 +14,18 @@ end
 _get_SC(::PWCMatrixModel{O3S,TM,Z2S,SC}) where {O3S, Z2S, TM, SC} = SC
 
 
-function ACE.params(mb::PWCMatrixModel; format=:matrix, joinsites=true) # :vector, :matrix
+function ACEfrictionCore.params(mb::PWCMatrixModel; format=:matrix, joinsites=true) # :vector, :matrix
     @assert format in [:native, :matrix]
     if joinsites  
-        return ACE.params(mb, :offsite; format=format)
+        return ACEfrictionCore.params(mb, :offsite; format=format)
     else 
-        θ_offsite = ACE.params(mb, :offsite; format=format)
+        θ_offsite = ACEfrictionCore.params(mb, :offsite; format=format)
         return (onsite=eltype(θ_offsite)[], offsite=θ_offsite,)
     end
 end
 
-function ACE.set_params!(mb::PWCMatrixModel, θ::NamedTuple)
-    ACE.set_params!(mb, :offsite, θ.offsite)
+function ACEfrictionCore.set_params!(mb::PWCMatrixModel, θ::NamedTuple)
+    ACEfrictionCore.set_params!(mb, :offsite, θ.offsite)
 end
 
 function allocate_matrix(M::PWCMatrixModel, at::Atoms,  T=Float64) 
@@ -145,14 +145,14 @@ function randf(::PWCMatrixModel, Σ::SparseMatrixCSC{SVector{3,T}, TI}) where {T
     return vec(sum(Σ.* R, dims=1))
 end
 
-function ACE.write_dict(M::PWCMatrixModel{O3S,CUTOFF,Z2S,SC}) where {O3S,CUTOFF,Z2S,SC}
+function ACEfrictionCore.write_dict(M::PWCMatrixModel{O3S,CUTOFF,Z2S,SC}) where {O3S,CUTOFF,Z2S,SC}
     return Dict("__id__" => "ACEfriction_PWCMatrixModel",
             "offsite" => write_dict(M.offsite),
             "sc" => write_dict(SC()),
             #Dict(zz=>write_dict(val) for (zz,val) in M.offsite),
             "id" => string(M.id))         
 end
-function ACE.read_dict(::Val{:ACEfriction_PWCMatrixModel}, D::Dict)
+function ACEfrictionCore.read_dict(::Val{:ACEfriction_PWCMatrixModel}, D::Dict)
             offsite = read_dict(D["offsite"])
             sc = read_dict(D["sc"])
             #Dict(zz=>read_dict(val) for (zz,val) in D["offsite"])

@@ -1,4 +1,4 @@
-import ACE: read_dict, write_dict
+import ACEfrictionCore: read_dict, write_dict
 
 using ACEfriction.AtomCutoffs: SphericalCutoff
 using ACEfriction.MatrixModels: RWCMatrixModel

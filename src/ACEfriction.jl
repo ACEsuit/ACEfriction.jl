@@ -26,10 +26,10 @@ export write_dict, read_dict, load_h5fdata, save_h5fdata
 import JuLIP: Atoms
 export Atoms
 
-import ACE.ACE.ACEbonds: EllipsoidCutoff
+import ACEfrictionCore.ACEfrictionCore.ACEbonds: EllipsoidCutoff
 export EllipsoidCutoff, SphericalCutoff
 
-import ACE: Invariant, EuclideanVector, EuclideanMatrix
+import ACEfrictionCore: Invariant, EuclideanVector, EuclideanMatrix
 export Invariant, EuclideanVector, EuclideanMatrix
 
 import JuLIP: save_dict, load_dict

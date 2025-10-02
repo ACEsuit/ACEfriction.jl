@@ -1,6 +1,6 @@
-using ACE
-using ACE.Testing
-using ACE.ACEbonds.BondCutoffs
+using ACEfrictionCore
+using ACEfrictionCore.Testing
+using ACEfrictionCore.ACEbonds.BondCutoffs
 using ACEfriction
 using ACEfriction.AtomCutoffs
 using ACEfriction.FrictionModels
@@ -17,7 +17,7 @@ using Test
 
 #%%
 @info "Testing write_dict and read_dict for PWCMatrixModel with SphericalCutoff"
-fm_pwcsc2 = ACE.read_dict(ACE.write_dict(fm_pwcsc));
+fm_pwcsc2 = ACEfrictionCore.read_dict(ACEfrictionCore.write_dict(fm_pwcsc));
 for _ in 1:5
     at = gen_config([:H,:Cu], n_min=2,n_max=2, species_prop = Dict(:H=>.5, :Cu=>.5), species_min = Dict(:H=>1, :Cu=>1),  maxnit = 1000)
     print_tf(@test Gamma(fm_pwcsc,at) == Gamma(fm_pwcsc2,at))
@@ -36,7 +36,7 @@ println()
 
 #%%
 @info "Testing write_dict and read_dict for PWCMatrixModel with EllipsoidCutoff"
-fm_pwcec2 = ACE.read_dict(ACE.write_dict(fm_pwcec));
+fm_pwcec2 = ACEfrictionCore.read_dict(ACEfrictionCore.write_dict(fm_pwcec));
 for _ in 1:5
     at = gen_config([:H,:Cu], n_min=2,n_max=2, species_prop = Dict(:H=>.5, :Cu=>.5), species_min = Dict(:H=>1, :Cu=>1),  maxnit = 1000)
     print_tf(@test Gamma(fm_pwcec,at) == Gamma(fm_pwcec2,at))

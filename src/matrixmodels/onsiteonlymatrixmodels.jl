@@ -10,18 +10,18 @@ struct OnsiteOnlyMatrixModel{O3S} <: MatrixModel{O3S}
     end
 end
 
-function ACE.params(mb::OnsiteOnlyMatrixModel; format=:matrix, joinsites=true) # :vector, :matrix
+function ACEfrictionCore.params(mb::OnsiteOnlyMatrixModel; format=:matrix, joinsites=true) # :vector, :matrix
     @assert format in [:native, :matrix]
     if joinsites  
-        return ACE.params(mb, :onsite; format=format)
+        return ACEfrictionCore.params(mb, :onsite; format=format)
     else 
-        θ_onsite = ACE.params(mb, :onsite; format=format)
+        θ_onsite = ACEfrictionCore.params(mb, :onsite; format=format)
         return (onsite=θ_onsite, offsite=eltype(θ_offsite)[],)
     end
 end
 
-function ACE.set_params!(mb::OnsiteOnlyMatrixModel, θ::NamedTuple)
-    ACE.set_params!(mb, :onsite,  θ.onsite)
+function ACEfrictionCore.set_params!(mb::OnsiteOnlyMatrixModel, θ::NamedTuple)
+    ACEfrictionCore.set_params!(mb, :onsite,  θ.onsite)
 end
 
 function allocate_matrix(M::OnsiteOnlyMatrixModel, at::Atoms,  T=Float64) 
@@ -79,13 +79,13 @@ function randf(::OnsiteOnlyMatrixModel, Σ::Diagonal{SVector{3, T}}) where {T<:R
     return Σ * randn(size(Σ,2))
 end
 
-function ACE.write_dict(M::OnsiteOnlyMatrixModel) 
+function ACEfrictionCore.write_dict(M::OnsiteOnlyMatrixModel) 
     return Dict("__id__" => "ACEfriction_OnsiteOnlyMatrixModel",
             "onsite" => write_dict(M.onsite),
             #Dict(zz=>write_dict(val) for (zz,val) in M.onsite),
             "id" => string(M.id))         
 end
-function ACE.read_dict(::Val{:ACEfriction_OnsiteOnlyMatrixModel}, D::Dict)
+function ACEfrictionCore.read_dict(::Val{:ACEfriction_OnsiteOnlyMatrixModel}, D::Dict)
             onsite = read_dict(D["onsite"])
             #Dict(zz=>read_dict(val) for (zz,val) in D["onsite"])
             id = Symbol(D["id"])

@@ -1,7 +1,7 @@
 module AtomCutoffs
 
-import ACE.ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
-import ACE: read_dict, write_dict
+import ACEfrictionCore.ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
+import ACEfrictionCore: read_dict, write_dict
 export read_dict, write_dict
 
 export SphericalCutoff, AbstractCutoff
@@ -9,7 +9,7 @@ export env_filter, env_transform, env_cutoff
 
 using StaticArrays
 using JuLIP: AtomicNumber, chemical_symbol
-using ACE
+using ACEfrictionCore
 
 struct SphericalCutoff{T}
     rcut::T
@@ -31,7 +31,7 @@ env_filter(r::StaticVector{3,T}, cutoff::SphericalCutoff) where {T<:Real} = (sum
 function env_transform(Rs::AbstractVector{<: SVector}, 
     Zs::AbstractVector{<: AtomicNumber}, 
     sc::SphericalCutoff)
-    cfg =  [ ACE.State(rr = r/sc.rcut, mu = chemical_symbol(z))  for (r,z) in zip( Rs,Zs) ] |> ACEConfig
+    cfg =  [ ACEfrictionCore.State(rr = r/sc.rcut, mu = chemical_symbol(z))  for (r,z) in zip( Rs,Zs) ] |> ACEConfig
     return cfg
 end
 """
@@ -52,13 +52,13 @@ function env_transform(j::Int,
     return cfg 
 end
 
-function ACE.write_dict(cutoff::SphericalCutoff{T}) where {T}
+function ACEfrictionCore.write_dict(cutoff::SphericalCutoff{T}) where {T}
     return Dict("__id__" => "ACEfriction_SphericalCutoff",
           "rcut" => cutoff.rcut,
              "T" => T)         
 end 
 
-function ACE.read_dict(::Val{:ACEfriction_SphericalCutoff}, D::Dict)
+function ACEfrictionCore.read_dict(::Val{:ACEfriction_SphericalCutoff}, D::Dict)
     T = getfield(Base, Symbol(D["T"]))
     rcut = T(D["rcut"])
     return SphericalCutoff(rcut)

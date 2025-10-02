@@ -1,10 +1,10 @@
 using ACEfriction.AtomCutoffs: SphericalCutoff
-using ACE
+using ACEfrictionCore
 using ACEfriction.MatrixModels
 using ACEfriction
 using JuLIP: AtomicNumber
 using ACEfriction.MatrixModels: _o3symmetry, EvaluationCenter
-using ACE.ACEbonds: EllipsoidCutoff, AbstractBondCutoff
+using ACEfrictionCore.ACEbonds: EllipsoidCutoff, AbstractBondCutoff
 using ACEfriction.MatrixModels: _default_id, _mreduce
 import ACEfriction.MatrixModels: RWCMatrixModel, PWCMatrixModel, OnsiteOnlyMatrixModel
 export RWCMatrixModel, PWCMatrixModel, OnsiteOnlyMatrixModel, mbdpd_matrixmodel

@@ -1,7 +1,7 @@
 using ACEfriction
 using ACEfriction.MatrixModels
 using Test
-using ACE.Testing
+using ACEfrictionCore.Testing
 using JuLIP
 using Distributions: Categorical
 using LinearAlgebra: norm

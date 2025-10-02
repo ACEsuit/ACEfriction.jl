@@ -1,16 +1,16 @@
 using LinearAlgebra
 using ACEfriction.FrictionModels
-using ACE: scaling, params
+using ACEfrictionCore: scaling, params
 using ACEfriction
 using ACEfriction.FrictionFit
 using ACEfriction.DataUtils
 using Flux
 using Flux.MLUtils
-using ACE
+using ACEfrictionCore
 using ACEfriction: PWCMatrixModel
 using Random
 using ACEfriction.FrictionFit
-using ACE.ACEbonds: EllipsoidCutoff
+using ACEfrictionCore.ACEbonds: EllipsoidCutoff
 
 using ACEfriction.MatrixModels
 
@@ -36,7 +36,7 @@ species_env = [:Cu]
 species_substrat = [:Cu]
 
 #property, species_friction, species_env, z2sym=NoZ2Sym(), speciescoupling=SpeciesUnCoupled()
-m_equ = PWCMatrixModel(ACE.EuclideanMatrix(Float64),species_friction,species_env;
+m_equ = PWCMatrixModel(ACEfrictionCore.EuclideanMatrix(Float64),species_friction,species_env;
         z2sym= NoZ2Sym(),
         speciescoupling = SpeciesUnCoupled(),
         species_substrat = species_substrat,
@@ -51,7 +51,7 @@ m_equ = PWCMatrixModel(ACE.EuclideanMatrix(Float64),species_friction,species_env
         bond_weight = 1.0
     );
 
-m_equ0 = OnsiteOnlyMatrixModel(ACE.EuclideanMatrix(Float64), species_friction, species_env; 
+m_equ0 = OnsiteOnlyMatrixModel(ACEfrictionCore.EuclideanMatrix(Float64), species_friction, species_env; 
     species_substrat=species_substrat, 
     id=:equ0, 
     n_rep = 1, 

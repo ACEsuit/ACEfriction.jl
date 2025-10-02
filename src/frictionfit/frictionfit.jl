@@ -6,7 +6,7 @@ export flux_assemble
 using ACEfriction.FrictionModels: FrictionModel
 import ACEfriction.FrictionModels: get_ids
 using Flux
-import ACE: params, set_params!
+import ACEfrictionCore: params, set_params!
 using Random: randn!
 using Tullio
 using KernelAbstractions, CUDA

@@ -15,21 +15,21 @@ struct RWCMatrixModel{O3S,CUTOFF,EVALCENTER} <: MatrixModel{O3S}
     end
 end #TODO: Add proper constructor that checks for correct Species evalcenter
 
-function ACE.set_params!(mb::RWCMatrixModel, θ::NamedTuple)
-    ACE.set_params!(mb, :onsite,  θ.onsite)
-    ACE.set_params!(mb, :offsite, θ.offsite)
+function ACEfrictionCore.set_params!(mb::RWCMatrixModel, θ::NamedTuple)
+    ACEfrictionCore.set_params!(mb, :onsite,  θ.onsite)
+    ACEfrictionCore.set_params!(mb, :offsite, θ.offsite)
 end
 
-function ACE.set_params!(mb::RWCMatrixModel, θ)
+function ACEfrictionCore.set_params!(mb::RWCMatrixModel, θ)
     θt = _split_sites(mb, θ) 
-    ACE.set_params!(mb::RWCMatrixModel, θt)
+    ACEfrictionCore.set_params!(mb::RWCMatrixModel, θt)
 end
 
 function set_params!(mb::RWCMatrixModel, site::Symbol, θ)
     θt = _rev_transform(θ, mb.n_rep)
     sitedict = getfield(mb, site)
     for z in keys(sitedict)
-        ACE.set_params!(_get_model(mb,z),θt[get_range(mb,z)]) 
+        ACEfrictionCore.set_params!(_get_model(mb,z),θt[get_range(mb,z)]) 
     end
 end
 
@@ -106,20 +106,20 @@ function randf(::RWCMatrixModel, Σ::SparseMatrixCSC{SVector{3, T}, TI}) where {
     return Σ * R
 end
 
-function ACE.write_dict(M::RWCMatrixModel{O3S,CUTOFF,EVALCENTER}) where {O3S,CUTOFF,EVALCENTER}
+function ACEfrictionCore.write_dict(M::RWCMatrixModel{O3S,CUTOFF,EVALCENTER}) where {O3S,CUTOFF,EVALCENTER}
     return Dict("__id__" => "ACEfriction_ACMatrixModel",
-            "onsite" => ACE.write_dict(M.onsite),
+            "onsite" => ACEfrictionCore.write_dict(M.onsite),
             #Dict(zz=>write_dict(val) for (zz,val) in M.onsite),
-            "offsite"  => ACE.write_dict(M.offsite),
+            "offsite"  => ACEfrictionCore.write_dict(M.offsite),
             # => Dict(zz=>write_dict(val) for (zz,val) in M.offsite),
             "id" => string(M.id),
             "O3S" => write_dict(O3S),
             "CUTOFF" => write_dict(CUTOFF),
             "EVALCENTER" => write_dict(EVALCENTER()))         
 end
-function ACE.read_dict(::Val{:ACEfriction_ACMatrixModel}, D::Dict)
-            onsite = ACE.read_dict(D["onsite"])
-            offsite = ACE.read_dict(D["offsite"])
+function ACEfrictionCore.read_dict(::Val{:ACEfriction_ACMatrixModel}, D::Dict)
+            onsite = ACEfrictionCore.read_dict(D["onsite"])
+            offsite = ACEfrictionCore.read_dict(D["offsite"])
             #Dict(zz=>read_dict(val) for (zz,val) in D["onsite"])
             #offsite = Dict(zz=>read_dict(val) for (zz,val) in D["offsite"])
             id = Symbol(D["id"])
