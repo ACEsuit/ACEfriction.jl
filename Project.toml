@@ -1,7 +1,7 @@
 name = "ACEfriction"
 uuid = "986aa7fc-b7ff-4dfb-8e8f-cd394e358ae2"
 authors = ["Matthias Sachs <e.matthias.sachs@gmail.com> and Christoph Ortner <c.ortner@warwick.ac.uk>"]
-version = "0.0.3"
+version = "0.1.0"
 
 [deps]
 ACEbase = "14bae519-eb20-449c-a949-9c58ed33163e"
