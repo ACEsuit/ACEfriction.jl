@@ -1,4 +1,4 @@
-using ACEbonds.BondSelectors: EllipsoidBondBasis
+using ACE.ACEbonds.BondSelectors: EllipsoidBondBasis
 using ACE
 
 # export SymmetricEllipsoidBondBasis2

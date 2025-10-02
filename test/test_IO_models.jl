@@ -1,6 +1,6 @@
 using ACE
 using ACE.Testing
-using ACEbonds.BondCutoffs
+using ACE.ACEbonds.BondCutoffs
 using ACEfriction
 using ACEfriction.AtomCutoffs
 using ACEfriction.FrictionModels

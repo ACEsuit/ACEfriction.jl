@@ -7,7 +7,7 @@ using JuLIP
 
 using ACEfriction.FrictionModels
 using ACEfriction.AtomCutoffs
-using ACEbonds.BondCutoffs
+using ACE.ACEbonds.BondCutoffs
 using ACE.Testing
 using LinearAlgebra
 

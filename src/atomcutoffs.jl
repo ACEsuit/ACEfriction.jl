@@ -1,6 +1,6 @@
 module AtomCutoffs
 
-import ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
+import ACE.ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
 import ACE: read_dict, write_dict
 export read_dict, write_dict
 

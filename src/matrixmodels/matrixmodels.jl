@@ -10,11 +10,11 @@ export NeighborCentered, AtomCentered
 export matrix, basis, params, nparams, set_params!, get_id
 
 using LinearAlgebra: Diagonal
-using JuLIP, ACE, ACEbonds
+using JuLIP, ACE, ACE.ACEbonds
 using JuLIP: chemical_symbol
 using ACE: SymmetricBasis, LinearACEModel, evaluate
-using ACEbonds: bonds, env_cutoff
-using ACEbonds.BondCutoffs: EllipsoidCutoff
+using ACE.ACEbonds: bonds, env_cutoff
+using ACE.ACEbonds.BondCutoffs: EllipsoidCutoff
 using LinearAlgebra
 using StaticArrays
 using SparseArrays
@@ -26,15 +26,15 @@ import ACEbase: evaluate, evaluate!
 import ACE: scaling
 import ACE: nparams, params, set_params!
 import ACE: write_dict, read_dict
-import ACEbonds: env_cutoff
+import ACE.ACEbonds: env_cutoff
 
-using ACEbonds.BondCutoffs 
-using ACEbonds.BondCutoffs: AbstractBondCutoff
+using ACE.ACEbonds.BondCutoffs 
+using ACE.ACEbonds.BondCutoffs: AbstractBondCutoff
 
 using ACEfriction.AtomCutoffs: SphericalCutoff
 using ACE
 using ACEfriction.MatrixModels
-#import ACEbonds: SymmetricEllipsoidBondBasis
+#import ACE.ACEbonds: SymmetricEllipsoidBondBasis
 include("../patches/acebonds_basisselectors.jl")
 using ACEfriction
 using JuLIP: AtomicNumber
@@ -327,15 +327,15 @@ env_cutoff(models::SiteModels) = maximum(env_cutoff(mo.cutoff) for mo in values(
 # end
 
 
-ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACEbonds.bonds(at, Dict(zz=> mo.cutoff for (zz,mo) in offsite), site_filter) 
-#ACEbonds.bonds(at::Atoms, curoff::EllipsoidCutoff, site_filter) = ACEbonds.bonds(at, cutoff, site_filter) 
+ACE.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACE.ACEbonds.bonds(at, Dict(zz=> mo.cutoff for (zz,mo) in offsite), site_filter) 
+#ACE.ACEbonds.bonds(at::Atoms, curoff::EllipsoidCutoff, site_filter) = ACE.ACEbonds.bonds(at, cutoff, site_filter) 
 
-# ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACEbonds.bonds( at, envoffsite.env.rcutbond, 
+# ACE.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACE.ACEbonds.bonds( at, envoffsite.env.rcutbond, 
 #     max(offsite.env.rcutbond*.5 + offsite.env.zcutenv, 
 #         sqrt((offsite.env.rcutbond*.5)^2+ offsite.env.rcutenv^2)),
 #                 (r, z, zzi, zzj) -> env_filter(r, z, offsite[_msort(zzi,zzj)].cutoff), site_filter )
 
-# ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACEbonds.bonds( at, offsite.env.rcutbond, 
+# ACE.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACE.ACEbonds.bonds( at, offsite.env.rcutbond, 
 #     max(offsite.env.rcutbond*.5 + offsite.env.zcutenv, 
 #         sqrt((offsite.env.rcutbond*.5)^2+ offsite.env.rcutenv^2)),
 #                 (r, z, i, j) -> env_filter(r, z), site_filter )

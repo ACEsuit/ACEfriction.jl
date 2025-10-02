@@ -183,7 +183,7 @@ Return the model ids of the model `m`.
 get_ids(m::FluxFrictionModel) = m.model_ids
 (m::FluxFrictionModel)(B, Tfm) = _Gamma(B, m.c, Tfm) 
 
-Flux.@functor FluxFrictionModel (c,)
+Flux.Functors.@functor FluxFrictionModel (c,)
 Flux.trainable(m::FluxFrictionModel) = (c=m.c,)
 
 

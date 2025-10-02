@@ -10,7 +10,7 @@ using ACE
 using ACEfriction: PWCMatrixModel
 using Random
 using ACEfriction.FrictionFit
-using ACEbonds: EllipsoidCutoff
+using ACE.ACEbonds: EllipsoidCutoff
 
 using ACEfriction.MatrixModels
 
