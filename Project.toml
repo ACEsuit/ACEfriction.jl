@@ -1,7 +1,7 @@
 name = "ACEfriction"
 uuid = "986aa7fc-b7ff-4dfb-8e8f-cd394e358ae2"
 authors = ["Matthias Sachs <e.matthias.sachs@gmail.com> and Christoph Ortner <c.ortner@warwick.ac.uk>"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 ACEbase = "14bae519-eb20-449c-a949-9c58ed33163e"
@@ -24,10 +24,19 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
 
 [compat]
-ACEfrictionCore = "0.1.0"
+ACEfrictionCore = "0.1"
 JuLIP = "0.16"
 StaticArrays = "1.0"
 julia = "1.11"
+CUDA = "5.8"
+Flux = "0.16"
+HDF5 = "0.17"
+KernelAbstractions = "0.9"
+NeighbourLists = "0.5"
+ProgressMeter = "1.11"
+Tullio = "0.3"
+Zygote = "0.6"
+
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
