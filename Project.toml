@@ -1,7 +1,7 @@
 name = "ACEfriction"
 uuid = "986aa7fc-b7ff-4dfb-8e8f-cd394e358ae2"
 authors = ["Matthias Sachs <e.matthias.sachs@gmail.com> and Christoph Ortner <c.ortner@warwick.ac.uk>"]
-version = "0.1.1"
+version = "0.1.2"
 
 [deps]
 ACEbase = "14bae519-eb20-449c-a949-9c58ed33163e"
@@ -24,7 +24,7 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
 
 [compat]
-ACEfrictionCore = "0.1"
+ACEfrictionCore = "0.1.1"
 CUDA = "5.5"
 Flux = "0.14, 0.15, 0.16"
 HDF5 = "0.17"
