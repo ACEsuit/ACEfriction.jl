@@ -1,12 +1,12 @@
 using LinearAlgebra
 using ACEfriction.FrictionModels
-using ACE: scaling, params
+using ACEfrictionCore: scaling, params
 using ACEfriction
 using ACEfriction.FrictionFit
 using ACEfriction.DataUtils
 using Flux
 using Flux.MLUtils
-using ACE
+using ACEfrictionCore
 using Random
 using ACEfriction.FrictionFit
 

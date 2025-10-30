@@ -5,12 +5,12 @@ using ACEfriction.MatrixModels
 import ACEfriction.MatrixModels: basis, matrix
 using LinearAlgebra
 using JuLIP: Atoms
-using ACE, Base
+using ACEfrictionCore, Base
 
 using ACEfriction
-import ACE: params, nparams, set_params!
+import ACEfrictionCore: params, nparams, set_params!
 import ACEfriction.MatrixModels: set_zero!, randf
-import ACE: scaling, write_dict, read_dict
+import ACEfrictionCore: scaling, write_dict, read_dict
 
 export write_dict, read_dict, params, nparams, set_params!
 export params, nparams, set_params!, get_ids
@@ -170,16 +170,16 @@ end
 
 Sets the parameters of all matrix models in the FrictionModel object whose ID is contained in `θ::NamedTuple` to the values specified therein.
 """
-function ACE.set_params!(fm::FrictionModel, θ::NamedTuple)
+function ACEfrictionCore.set_params!(fm::FrictionModel, θ::NamedTuple)
     for s in keys(θ) 
-        ACE.set_params!(fm.matrixmodels[s], θ[s])
+        ACEfrictionCore.set_params!(fm.matrixmodels[s], θ[s])
     end
 end
 
 get_ids(::FrictionModel{MODEL_IDS})  where {MODEL_IDS} = MODEL_IDS
 
-function ACE.scaling(fm::FrictionModel{MODEL_IDS}, p::Int) where {MODEL_IDS}
-    return NamedTuple{MODEL_IDS}( ACE.scaling(mo,p) for mo in values(fm.matrixmodels))
+function ACEfrictionCore.scaling(fm::FrictionModel{MODEL_IDS}, p::Int) where {MODEL_IDS}
+    return NamedTuple{MODEL_IDS}( ACEfrictionCore.scaling(mo,p) for mo in values(fm.matrixmodels))
 end
 
 function Gamma(M::MatrixModel, at::Atoms; kvargs...) 
@@ -234,11 +234,11 @@ end
 
 Sigma(M::MatrixModel, at::Atoms; kvargs...) = matrix(M, at; kvargs...) 
 
-function ACE.write_dict(fm::FrictionModel)
+function ACEfrictionCore.write_dict(fm::FrictionModel)
     return Dict("__id__" => "ACEfriction_FrictionModel",
           "matrixmodels" => Dict(id=>write_dict(fm.matrixmodels[id]) for id in keys(fm.matrixmodels)))        
 end 
-function ACE.read_dict(::Val{:ACEfriction_FrictionModel}, D::Dict)
+function ACEfrictionCore.read_dict(::Val{:ACEfriction_FrictionModel}, D::Dict)
     matrixmodels = NamedTuple(Dict(Symbol(id)=>read_dict(val) for (id,val) in D["matrixmodels"]))
     return FrictionModel(matrixmodels)
 end

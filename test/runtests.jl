@@ -8,13 +8,8 @@ using Flux
 using Flux.MLUtils
 using ACEfriction.MatrixModels
 using ACEfriction: RWCMatrixModel
-using ACE
+using ACEfrictionCore
 
-#include("./helper_functions.jl");
-## Create friction models 
-#include("./create_frictionmodels.jl");
-#train_tol = .03;
-#tol = 1E-9;
 ##
 @testset "ACEfriction.jl" begin
     # ------------------------------------------

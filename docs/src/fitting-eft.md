@@ -3,7 +3,7 @@
 In this workflow example we demonstrate how `ACEfriction.jl` can be used to fit a simple 6 x 6 Electronic friction tensor modeling the non-adiabitic interactions of a hydrogen-atom on a copper surface. 
 
 ## Load Electronic Friction Tensor Data
-We first use the function [load_h5fdata]() to load the data of friction tensors from a [custom-formated]() hdf5 file and convert the data to the internal data format [FrictionData].
+We first use the function [load_h5fdata](@ref) to load the data of friction tensors from a [custom-formated](@ref costum-hdf5-format) hdf5 file and convert the data to the internal data format [FrictionData](@ref friction-data-representation).
 ```julia
 using ACEfriction
 # Load data 
@@ -12,12 +12,12 @@ rdata = ACEfriction.DataUtils.load_h5fdata( "./test/test-data-100.h5");
 n_train = Int(ceil(.8 * length(rdata)))
 n_test = length(rdata) - n_train
 # Partition data into train and test set and convert the data 
-fdata = Dict("train" => FrictionData.(rdata[1:n_train]), 
-            "test"=> FrictionData.(rdata[n_train+1:end]));
+fdata = Dict("train" => rdata[1:n_train], 
+            "test"=> rdata[n_train+1:end]);
 ```
 
 ## Specify the Friction Model
-Next, we specify the matrix models that will make up our friction model. In this case we only specify the single matrix model `m_equ`, which being of the type `RWCMatrixModel` is based on a row-wise coupling. 
+Next, we specify the matrix models that will make up our friction model. In this case we only specify the single matrix model `m_equ`, which being of the type [RWCMatrixModel](@ref) is based on a row-wise coupling. Alternative code for building a friction model with a pairwise coupling [PWCMatrixModel](@ref) is provided in [the last of section of this working example](@ref fitting-pairwise-coupling).
 ```julia
 property = EuclideanMatrix()
 species_friction = [:H]
@@ -29,7 +29,7 @@ m_equ = RWCMatrixModel(property, species_friction, species_env;
     maxdeg = 5,
 );
 ```
-The first argument, `property`, of the constructor, `RWCMatrixModel`, specifies the equivariance symmetry of blocks. Here, `property` is of type `EuclideanMatrix` specifying each block to  transform like an Euclidean Matrix. In this modeling application, only hydrogen atoms feel friction, which we specify by setting the second argument `species_friction` to `[:H]`. Yet, the friction felt by an hydrogen atom is affected by the presence of both hydrogen atoms and copper atoms in its vicinty, which we specify by setting `species_env` to `[:H, :Cu]`. Furthermore, the physics is such that hydrogen models only feel friction if they are in contact with the metal surface. We specify this by setting `species_substrat = [:Cu]`. For further details and information on the remaining optional arguments see the docomentation of the constructor of [RWCMatrixModel]().
+The first argument, `property`, of the constructor, `RWCMatrixModel`, specifies the equivariance symmetry of blocks. Here, `property` is of type `EuclideanMatrix` specifying each block to  transform like an Euclidean Matrix. In this modeling application, only hydrogen atoms feel friction, which we specify by setting the second argument `species_friction` to `[:H]`. Yet, the friction felt by an hydrogen atom is affected by the presence of both hydrogen atoms and copper atoms in its vicinty, which we specify by setting `species_env` to `[:H, :Cu]`. Furthermore, the physics is such that hydrogen models only feel friction if they are in contact with the metal surface. We specify this by setting `species_substrat = [:Cu]`. For further details and information on the remaining optional arguments see the docomentation of the constructor of [RWCMatrixModel](@ref).
 
 Next we build a friction model from the matrix model(s),
 ```julia
@@ -46,7 +46,7 @@ To train our model we first extract the parameters from the friction model, whic
 c=params(fm)                                
 ffm = FluxFrictionModel(c)
 ```
-Next, the function `flux_assemble` is used to prepare data for training. This includes evaluating the ACE-basis functions of the matrix models in `fm` on all configurations in the data set. Since the loss function of our model is quartic polynomial in the parameters, we don't need to reevaluate the ACE-basis functions at later stages of the training process.
+Next, the function [`flux_assemble`]() is used to prepare data for training. This includes evaluating the ACE-basis functions of the matrix models in `fm` on all configurations in the data set. Since the loss function of our model is quartic polynomial in the parameters, we don't need to reevaluate the ACE-basis functions at later stages of the training process.
 ```julia
 flux_data = Dict( "train"=> flux_assemble(fdata["train"], fm, ffm; ),
                   "test"=> flux_assemble(fdata["test"], fm, ffm));
@@ -119,4 +119,32 @@ The diffusion coefficient matrix $\Sigma$ can also be used to efficiently genera
 R = randf(fm,Σ)
 ```
 
+## [Friction Model with a Pairwise Coupling](@id fitting-pairwise-coupling)
+Instead of using a row-wise coupling, we can also use a pair-wise coupling to construct a friction model. The following code produces a friction model with a pair-wise coupling:
+```julia
+property = EuclideanMatrix(Float64)
+species_friction = [:H]
+species_env = [:Cu,:H]
 
+m_equ = PWCMatrixModel(property, species_friction,  species_env;
+        z2sym = NoZ2Sym(), 
+        speciescoupling = SpeciesUnCoupled(),
+        species_substrat = [:Cu],
+        n_rep = 1,
+        maxorder=2, 
+        maxdeg=5, 
+        rcut= 5.0, 
+    );
+
+m_equ0 = OnsiteOnlyMatrixModel(property, species_friction,  species_env;
+    species_substrat=[:Cu], 
+    id=:equ0, 
+    n_rep = 1, 
+    rcut = rcut, 
+    maxorder=2, 
+    maxdeg=5
+);
+
+fm= FrictionModel((mequ_off = m_equ, mequ_on=m_equ0)); 
+
+```

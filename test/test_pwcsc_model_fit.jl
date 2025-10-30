@@ -1,7 +1,7 @@
 using ACEfriction
 using ACEfriction.MatrixModels
 using Test
-using ACE.Testing
+using ACEfrictionCore.Testing
 using JuLIP
 using Distributions: Categorical
 using LinearAlgebra: norm
@@ -62,7 +62,7 @@ fm= FrictionModel((mequ_off=m_equ_off, m_equ_on=m_equ_on));
 
 
 @info "Testing save_dict and load_dict"
-tmpname = tempname()
+tmpname = string(tempname(),".json")
 save_dict(tmpname, write_dict(fm))
 fm2 = read_dict(load_dict(tmpname))
 for _ in 1:5
@@ -82,8 +82,8 @@ shuffle!(rng, rdata)
 n_train = Int(ceil(.8 * length(rdata)))
 n_test = length(rdata) - n_train
 
-fdata = Dict("train" => FrictionData.(rdata[1:n_train]), 
-            "test"=> FrictionData.(rdata[n_train+1:end]));
+fdata = Dict("train" => rdata[1:n_train], 
+            "test"=> rdata[n_train+1:end]);
             
 @info "Fit friction model"  
 

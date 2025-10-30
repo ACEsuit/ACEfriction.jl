@@ -1,7 +1,3 @@
-# Function Manual (@id Function-Manual)
-
-## ACEfriction.FrictionModels.jl
-
 ```@meta
 CurrentModule = ACEfriction.FrictionModels
 ```
@@ -47,8 +43,3 @@ set_params!
 ```@docs
 set_zero!
 ```
-
-## ACEfriction.MatrixModels.jl
-
-
-## ACEfriction.FrictionFit.jl

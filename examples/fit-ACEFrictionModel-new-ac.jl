@@ -1,12 +1,12 @@
 using LinearAlgebra
 using ACEfriction.FrictionModels
-using ACE: scaling, params
+using ACEfrictionCore: scaling, params
 using ACEfriction
 using ACEfriction.FrictionFit
 using ACEfriction.DataUtils
 using Flux
 using Flux.MLUtils
-using ACE
+using ACEfrictionCore
 using ACEfriction: RWCMatrixModel
 using Random
 using ACEfriction.FrictionFit
@@ -28,7 +28,7 @@ n_test = length(rdata) - n_train
 fdata = Dict("train" => FrictionData.(rdata[1:n_train]), 
             "test"=> FrictionData.(rdata[n_train+1:end]));
 
-m_equ = RWCMatrixModel(ACE.EuclideanMatrix(Float64),[:H],[:Cu,:H];
+m_equ = RWCMatrixModel(ACEfrictionCore.EuclideanMatrix(Float64),[:H],[:Cu,:H];
     evalcenter = AtomCentered(),
     species_substrat = [:Cu],
     n_rep = 1, 
@@ -93,6 +93,7 @@ set_params!(fm, params(ffm))
 
 at = fdata["test"][1].atoms
 @time Gamma(fm, at)
+G = Gamma(fm, at)
 @time Σ = Sigma(fm, at)
 @time Gamma(fm, Σ)
 @time randf(fm, Σ)

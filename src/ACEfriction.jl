@@ -9,7 +9,6 @@ include("./atomcutoffs.jl")
 include("./matrixmodels/matrixmodels.jl")
 include("./frictionmodels.jl")
 include("./frictionfit/frictionfit.jl")
-
 include("./matrixmodelsutils.jl")
 
 import ACEfriction.FrictionModels: FrictionModel, Gamma, Sigma
@@ -27,10 +26,10 @@ export write_dict, read_dict, load_h5fdata, save_h5fdata
 import JuLIP: Atoms
 export Atoms
 
-import ACEbonds: EllipsoidCutoff
+import ACEfrictionCore.ACEbonds: EllipsoidCutoff
 export EllipsoidCutoff, SphericalCutoff
 
-import ACE: Invariant, EuclideanVector, EuclideanMatrix
+import ACEfrictionCore: Invariant, EuclideanVector, EuclideanMatrix
 export Invariant, EuclideanVector, EuclideanMatrix
 
 import JuLIP: save_dict, load_dict

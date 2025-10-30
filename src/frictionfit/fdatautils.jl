@@ -1,5 +1,6 @@
+
 """
-    flux_assemble(data::Array{DATA}, fm::FrictionModel, ffm::FluxFrictionModel) where {DATA<:FrictionData}
+    flux_assemble(fdata::Array{DATA}, fm::FrictionModel, ffm::FluxFrictionModel; weights = Dict("observations" => ones(length(fdata)), "diag" => 2.0, "sub_diag" => 1.0, "off_diag"=>1.0)) where {DATA<:FrictionData}
 
 Converts FrictionData into a format that can be used for training with ffm::FluxFrictionModel 
 
@@ -105,11 +106,7 @@ end
 """
 function _flux_data(d::FrictionData,fm::FrictionModel, transforms::NamedTuple, W, join_sites=true)
     # TODO: in-place data manipulations
-    if d.friction_tensor_ref === nothing
-        friction_tensor = _tensor_Gamma(d.friction_tensor,d.friction_indices)
-    else
-        friction_tensor = _tensor_Gamma(d.friction_tensor-d.friction_tensor_ref,d.friction_indices)
-    end
+    friction_tensor = _tensor_Gamma(d.friction_tensor,d.friction_indices)
     Tfm = Tuple(typeof(mo) for mo in values(fm.matrixmodels))
     BB = basis(fm, d.atoms; join_sites=join_sites)  
     BB = Tuple(_tensor_basis(transform_basis(B,trans),d.friction_indices, tfm) for (B,tfm,trans) in zip(BB,Tfm,transforms)) 

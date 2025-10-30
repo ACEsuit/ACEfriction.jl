@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main # update to match your development branch (master, main, dev, trunk, ...)
-    tags: 'v0.0.01'
+    tags: 'v0.1.0'
   pull_request:
 
 jobs:

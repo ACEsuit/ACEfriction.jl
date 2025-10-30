@@ -34,8 +34,8 @@ The following code loads training and test data comprised of particle configurat
 rdata_train = ACEfriction.DataUtils.load_h5fdata("./examples/data/dpd-train-x.h5"); 
 rdata_test = ACEfriction.DataUtils.load_h5fdata("./examples/data/dpd-train-x.h5"); 
 
-fdata = Dict("train" => FrictionData.(rdata_train), 
-            "test"=> FrictionData.(rdata_test));
+fdata = Dict("train" => rdata_train, 
+            "test"=> rdata_test);
 (n_train, n_test) = length(fdata["train"]), length(fdata["test"])
 ```
 Here the training data is contains friction tensors of 50 configurations each comprised of 64 particles, and the test data contains friction tensors of 10 configurations each comprised of 216 particles. The underlying friction tensors were synthetically generated using the following simple friction model, which is a smooth version of the standard heuristic DPD friction models commonly used in simulations: 
