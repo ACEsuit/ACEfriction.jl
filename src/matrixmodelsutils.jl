@@ -48,7 +48,7 @@ function RWCMatrixModel(property, species_friction, species_env;
     rin_ratio= .04, 
     pcut=2, 
     pin=2,
-    trans= PolyTransform(2, r0_ratio), 
+    trans= polytransform(2, r0_ratio), 
     p_sel = 2,  
     evalcenter = AtomCentered(),
     bond_weight = 1.0,
@@ -83,7 +83,7 @@ function RWCMatrixModel(property, species_friction, species_env, evalcenter::EC;
     rin_ratio_on= .04, 
     pcut_on=2, 
     pin_on=2,
-    trans_on= PolyTransform(2, r0_ratio_on), #warning: the polytransform acts on [0,1]
+    trans_on= polytransform(2, r0_ratio_on), #warning: the polytransform acts on [0,1]
     p_sel_on = 2, 
     species_minorder_dict_on = Dict{Any, Float64}(),
     species_maxorder_dict_on = Dict{Any, Float64}(),
@@ -186,7 +186,7 @@ function OnsiteOnlyMatrixModel(property, species_friction, species_env;
     rin_ratio= .04, 
     pcut=2, 
     pin=2,
-    trans= PolyTransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
+    trans= polytransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
     p_sel = 2, 
     species_minorder_dict = Dict{Any, Float64}(),
     species_maxorder_dict = Dict{Any, Float64}(),
@@ -265,7 +265,7 @@ function mbdpd_matrixmodel(property, species_friction, species_env;
     rin_ratio=.04, 
     pcut=2, 
     pin=2, 
-    trans= PolyTransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
+    trans= polytransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
     p_sel = 2,
     weight = Dict(:l => 1.0, :n => 1.0), 
     bond_weight = 1.0,
@@ -367,7 +367,7 @@ function PWCMatrixModel(property, species_friction, species_env;
     rin_ratio=.04, 
     pcut=2, 
     pin=2, 
-    trans= PolyTransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
+    trans= polytransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
     p_sel = 2,
     weight = Dict(:l => 1.0, :n => 1.0), 
     bond_weight = 1.0,
@@ -422,7 +422,7 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::CUTOFF;
     rin_ratio=.04, 
     pcut=2, 
     pin=2, 
-    trans= PolyTransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
+    trans= polytransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
     p_sel = 2,
     weight = Dict(:l => 1.0, :n => 1.0), 
     bond_weight = 1.0,

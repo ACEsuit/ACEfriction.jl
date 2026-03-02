@@ -289,7 +289,7 @@ env_cutoff(models::SiteModels) = maximum(env_cutoff(mo.cutoff) for mo in values(
 #     rin_ratio=.04, 
 #     pcut=2, 
 #     pin=2, 
-#     trans= PolyTransform(2, r0_ratio), 
+#     trans= polytransform(2, r0_ratio), 
 #     isym=:mube, 
 #     weight = Dict(:l => 1.0, :n => 1.0),
 #     p_sel = 2,
@@ -451,7 +451,7 @@ function offsite_linbasis(property,species;
     rin_ratio=.04, 
     pcut=2, 
     pin=2, 
-    trans= PolyTransform(2, r0_ratio), 
+    trans= polytransform(2, r0_ratio), 
     isym=:mube, 
     weight = Dict(:l => 1.0, :n => 1.0),
     p_sel = 2,
@@ -493,7 +493,7 @@ end
 
 function onsite_linbasis(property,species;
     maxorder=2, maxdeg=5, r0_ratio=.4, rin_ratio=.04, pcut=2, pin=2,
-    trans= PolyTransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
+    trans= polytransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
     p_sel = 2, 
     species_minorder_dict = Dict{Any, Float64}(),
     species_maxorder_dict = Dict{Any, Float64}(),

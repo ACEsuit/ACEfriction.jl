@@ -12,7 +12,7 @@ using ACEfrictionCore
        #maxlevels::Dict{Any, Float64} = nothing,
        r0 = .4, 
        rin=.0, 
-       trans = PolyTransform(2, r0), 
+       trans = polytransform(2, r0), 
        pcut=2, 
        pin=2, 
        bondsymmetry=nothing,
