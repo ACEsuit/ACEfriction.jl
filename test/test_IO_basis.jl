@@ -20,7 +20,7 @@ Threads.@threads for (maxorder,maxdeg) = [(2,2),(2,3),(2,4)]
     Bsel = ACEfrictionCore.SparseBasis(; maxorder=maxorder, p = 2, default_maxdeg = maxdeg ) 
     RnYlm = ACEfrictionCore.Utils.RnYlm_1pbasis(;  r0 = r0, 
                                     rin = .5*r0,
-                                    trans = PolyTransform(2, r0), 
+                                    trans = polytransform(2, r0), 
                                     pcut = 1,
                                     pin = 2, 
                                     Bsel = Bsel, 
@@ -52,7 +52,7 @@ for (maxorder,maxdeg) = [(2,2),(2,3),(2,4)]
     env = ACEfrictionCore.EllipsoidBondEnvelope(r0cut, rcut; p0=1, pr=1, floppy=false, λ= 0.5)
     RnYlm = ACEfrictionCore.Utils.RnYlm_1pbasis(;  r0 = r0, 
                                     rin = .5*r0,
-                                    trans = PolyTransform(2, r0), 
+                                    trans = polytransform(2, r0), 
                                     pcut = 1,
                                     pin = 2, 
                                     Bsel = Bsel, 
