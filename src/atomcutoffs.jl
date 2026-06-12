@@ -1,67 +1,20 @@
 module AtomCutoffs
 
-import ACEfrictionCore.ACEbonds.BondCutoffs: EllipsoidCutoff, env_cutoff, env_filter, env_transform
-import ACEfrictionCore: read_dict, write_dict
-export read_dict, write_dict
+# Cutoffs for the ET backend. SphericalCutoff (onsite + atom-centred offsite) and
+# EllipsoidCutoff (bond-centred offsite) come from ETBackend; this module just
+# re-exports them and the environment transforms so the matrix models can use a
+# single name. (Replaces the ACEfrictionCore/ACEbonds cutoffs.)
 
-export SphericalCutoff, AbstractCutoff
-export env_filter, env_transform, env_cutoff
+import ACEfriction.ETBackend
+import ACEfriction.ETBackend: SphericalCutoff, EllipsoidCutoff, SnowManCutoff, env_cutoff,
+                              env_filter, ellipsoid_env_transform,
+                              spherical_bond_transform, et_bonds
+import ACEfriction.ETBackend: _atomic_number, _chemical_symbol
 
-using StaticArrays
-using JuLIP: AtomicNumber, chemical_symbol
-using ACEfrictionCore
+export SphericalCutoff, EllipsoidCutoff, SnowManCutoff, AbstractCutoff
+export env_filter, env_cutoff
+export ellipsoid_env_transform, spherical_bond_transform, et_bonds
 
-struct SphericalCutoff{T}
-    rcut::T
-end
-
-const AbstractCutoff = Union{SphericalCutoff,EllipsoidCutoff}
-
-env_cutoff(sc::SphericalCutoff) = sc.rcut
-env_filter(r::T, cutoff::SphericalCutoff) where {T<:Real} = (r <= cutoff.rcut)
-env_filter(r::StaticVector{3,T}, cutoff::SphericalCutoff) where {T<:Real} = (sum(r.^2) <= cutoff.rcut^2)
-
-"""
-    maps environment to unit-sphere
-    env_transform(Rs::AbstractVector{<: SVector}, 
-    Zs::AbstractVector{<: AtomicNumber}, 
-    sc::DSphericalCutoff, filter=false)
-
-"""
-function env_transform(Rs::AbstractVector{<: SVector}, 
-    Zs::AbstractVector{<: AtomicNumber}, 
-    sc::SphericalCutoff)
-    cfg =  [ ACEfrictionCore.State(rr = r/sc.rcut, mu = chemical_symbol(z))  for (r,z) in zip( Rs,Zs) ] |> ACEConfig
-    return cfg
-end
-"""
-    maps environment to unit-sphere and labels j th particle as :bond
-    env_transform(Rs::AbstractVector{<: SVector}, 
-    Zs::AbstractVector{<: AtomicNumber}, 
-    sc::DSphericalCutoff, filter=false)
-
-"""
-function env_transform(j::Int, 
-    Rs::AbstractVector{<: SVector}, 
-    Zs::AbstractVector{<: AtomicNumber}, 
-    dse::SphericalCutoff)
-    # Y0 = State( rr = rrij, mube = :bond) # Atomic species of bond atoms does not matter at this stage.
-    # cfg = Vector{typeof(Y0)}(undef, length(Rs)+1)
-    # cfg[1] = Y0
-    cfg = [State( rr = Rs[l]/dse.rcut, mube = (l == j ? :bond : chemical_symbol(Zs[l])) ) for l = eachindex(Rs)] |> ACEConfig
-    return cfg 
-end
-
-function ACEfrictionCore.write_dict(cutoff::SphericalCutoff{T}) where {T}
-    return Dict("__id__" => "ACEfriction_SphericalCutoff",
-          "rcut" => cutoff.rcut,
-             "T" => T)         
-end 
-
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_SphericalCutoff}, D::Dict)
-    T = getfield(Base, Symbol(D["T"]))
-    rcut = T(D["rcut"])
-    return SphericalCutoff(rcut)
-end
+const AbstractCutoff = Union{SphericalCutoff, EllipsoidCutoff, SnowManCutoff}
 
 end

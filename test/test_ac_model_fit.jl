@@ -1,8 +1,9 @@
 using ACEfriction
 using ACEfriction.MatrixModels
 using Test
-using ACEfrictionCore.Testing
-using JuLIP
+using ACEbase.Testing
+using AtomsBuilder: bulk, rattle!, set_elements
+using AtomsBase: atomic_number
 using Distributions: Categorical
 using LinearAlgebra: norm
 using Random
@@ -12,27 +13,26 @@ using Flux.MLUtils
 function gen_config(species; n_min=2,n_max=2, species_prop = Dict(z=>1.0/length(species) for z in species), species_min = Dict(z=>1 for z in keys(species_prop)),  maxnit = 1000)
     species = collect(keys(species_prop))
     n = rand(n_min:n_max)
-    at = rattle!(bulk(:Cu, cubic=true) * n, 0.3)
-    N_atoms = length(at)
+    at0 = rattle!(bulk(:Cu, cubic=true) * n, 0.3)
+    N_atoms = length(at0)
     d = Categorical( values(species_prop)|> collect)
     nit = 0
-    while true 
-        at.Z = AtomicNumber.(species[rand(d,N_atoms)]) 
-        if all(sum(at.Z .== AtomicNumber(z)) >= n_min  for (z,n_min) in species_min)
-            break
-        elseif nit > maxnit 
+    while true
+        at = set_elements(at0, species[rand(d,N_atoms)])
+        if all(sum(atomic_number(at, :) .== atomic_number(z)) >= n_min  for (z,n_min) in species_min)
+            return at
+        elseif nit > maxnit
             @error "Number of iterations exceeded $maxnit."
             exit()
         end
         nit+=1
     end
-    return at
 end
 
-train_tol = .03;
+train_tol = 0.1;
 tol = 1E-9;
 
-@info "Create RWC friction model"
+@info "Create CWC friction model"
 
 evalcenter= AtomCentered()
 species_friction = [:H]
@@ -40,15 +40,18 @@ species_env = [:Cu,:H]
 species_substrat = [:Cu]
 rcut = 5.0
 
-m_equ = RWCMatrixModel(EuclideanMatrix(Float64),species_friction,species_env,evalcenter;
+m_equ = CWCMatrixModel(EuclideanMatrix(Float64),species_friction,species_env,evalcenter;
     species_substrat = [:Cu],
     n_rep=1, rcut_on = rcut, rcut_off = rcut, maxorder_on=2, maxdeg_on=3,
-    species_maxorder_dict_on = Dict( :H => 1), 
+    species_maxorder_dict_on = Dict( :H => 1),
     species_weight_cat_on = Dict(:H => .75, :Cu=> 1.0),
-    species_maxorder_dict_off = Dict( :H => 0), 
+    species_maxorder_dict_off = Dict( :H => 0),
     species_weight_cat_off = Dict(:H => 1.0, :Cu=> 1.0),
     bond_weight = .5
 );
+
+# RWCMatrixModel was renamed to CWCMatrixModel; the old name must now error.
+@test_throws ErrorException RWCMatrixModel(EuclideanMatrix(Float64), species_friction, species_env, evalcenter)
 
 fm= FrictionModel((mequ=m_equ,));
 
@@ -77,7 +80,7 @@ n_test = length(rdata) - n_train
 fdata = Dict("train" => rdata[1:n_train], 
             "test"=> rdata[n_train+1:end]);
             
-@info "Fit RWC friction model"            
+@info "Fit CWC friction model"            
 c = params(fm)
 
 ffm = FluxFrictionModel(c)
@@ -93,7 +96,7 @@ loss_traj = Dict("train"=>Float64[], "test" => Float64[])
 
 epoch = 0
 batchsize = 10
-nepochs = 300
+nepochs = 2000
 
 opt = Flux.setup(Adam(1E-3, (0.99, 0.999)),ffm)
 dloader = DataLoader(flux_data["train"], batchsize=batchsize, shuffle=true)

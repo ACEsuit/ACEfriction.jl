@@ -2,7 +2,9 @@
 module DataUtils
 
 using ProgressMeter
-using JuLIP
+using AtomsBase: FlexibleSystem, Atom, position, atomic_number, cell_vectors, periodicity
+using Unitful: @u_str, ustrip
+using ACEbase.FIO: read_dict, write_dict
 using ACEfriction.mUtils: reinterpret
 using StaticArrays, SparseArrays
 export FrictionData, BlockDenseArray 
@@ -47,7 +49,7 @@ Saves a friction tensor data in a costum formatted hdf5 file.
 ### Arguments
 - `rdata` : Vector{FrictionData} :
     A vector of friction data entries. Each entry is a structure of type `Frictiondata` with the following fields:
-    - `at` : JuLIP.Atoms : Atoms object containing the atomic positions, cell, and periodic boundary conditions.
+    - `at` : AtomsBase.AbstractSystem : atomic system containing the atomic positions, cell, and periodic boundary conditions.
     - `friction_tensor` : SparseMatrix{SMatrix{3,3,Float64,9}} : Sparse matrix representation of the friction tensor.
     - `friction_indices` : Vector{Int} : Indices of the atoms for which the friction tensor is defined.
 - `filename` : String : Name of the file to save to (including h5 extension).
@@ -61,15 +63,23 @@ function save_h5fdata(rdata::Vector{FrictionData}, filename::String )
             g = create_group(fid, "$i")
             # write atoms data
             ag = create_group(g, "atoms")
-            dset_pos = create_dataset(ag, "positions", Float64, (length(d.atoms.X), 3))
-            for (k,x) in enumerate(d.atoms.X)
+            # positions as unitless Å (rows = atoms), mirroring the previous JuLIP `at.X`
+            X = [ustrip.(u"Å", position(d.atoms, k)) for k in 1:length(d.atoms)]
+            dset_pos = create_dataset(ag, "positions", Float64, (length(X), 3))
+            for (k,x) in enumerate(X)
                 dset_pos[k,:] = x
             end
             write_attribute(dset_pos, "column_major", true)
-            write(ag, "atypes", Int.(d.atoms.Z))
-            write(ag, "cell", Matrix(d.atoms.cell))
+            write(ag, "atypes", Int.(atomic_number(d.atoms, :)))
+            # cell stored with rows = cell vectors (Å)
+            cv = cell_vectors(d.atoms)
+            cellmat = Matrix{Float64}(undef, 3, 3)
+            for i in 1:3
+                cellmat[i, :] = ustrip.(u"Å", cv[i])
+            end
+            write(ag, "cell", cellmat)
             write_attribute(ag["cell"], "column_major", true)
-            write(ag, "pbc", Array(d.atoms.pbc))
+            write(ag, "pbc", collect(periodicity(d.atoms)))
             # write friction data
             fg = create_group(g, "friction_tensor")
             (I,J,V) = findnz(d.friction_tensor)
@@ -112,11 +122,13 @@ function _hdf52Atoms( ag::HDF5.Group )
         @warn "The attribute 'column_major' is missing for the data 'cell'. Proceed assuming array was stored in column-major format. If you are saving your array from Python, make sure to set the column_major attribute to 0 (False)."
         cell = read(ag["cell"])
     end
-    return JuLIP.Atoms(;
-                X=[SVector{3}(d) for d in eachslice(positions; dims=1)],
-                Z=read(ag["atypes"]), 
-                cell= cell,
-                pbc=Bool.(read(ag["pbc"]))
+    Z = read(ag["atypes"])
+    pbc = Bool.(read(ag["pbc"]))
+    Xs = [SVector{3}(d) for d in eachslice(positions; dims=1)]   # Å
+    atoms = [Atom(Int(Z[i]), Xs[i] * u"Å") for i in 1:length(Z)]
+    return FlexibleSystem(atoms;
+                cell_vectors = tuple([SVector{3}(cell[i, :]) * u"Å" for i in 1:3]...),
+                periodicity = tuple(pbc...)
             )
 end
         
@@ -149,7 +161,7 @@ Loads a friction tensor data from a costum formatted hdf5 file.
 ### Returns
 - `rdata` : Vector{FrictionData} :
     A vector of friction data entries. Each entry is a structure of type `Frictiondata` with the following fields:
-    - `at` : JuLIP.Atoms : Atoms object containing the atomic positions, cell, and periodic boundary conditions.
+    - `at` : AtomsBase.AbstractSystem : atomic system containing the atomic positions, cell, and periodic boundary conditions.
     - `friction_tensor` : SparseMatrix{SMatrix{3,3,Float64,9}} : Sparse matrix representation of the friction tensor.
     - `friction_indices` : Vector{Int} : Indices of the atoms for which the friction tensor is defined.
 """

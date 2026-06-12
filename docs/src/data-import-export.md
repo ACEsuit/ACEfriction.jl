@@ -12,7 +12,7 @@ struct FrictionData
 end
 ```
 where
-- `atoms` -- stores data of the atomic configuration ans is assumed to be of type `JuLIP.Atoms`,
+- `atoms` -- stores data of the atomic configuration and is assumed to be an `AtomsBase.AbstractSystem` (e.g. a `FlexibleSystem`),
 - `friction_tensor` -- stores data on the friction tensor and is assumed to be of type`SparseMatrix{SMatrix{3, 3, T, 9}}`, where `T<:Float` and `Ti<:Int`. That is, the friction tensor is stored in the form of sparse matrices with $3 \times 3$-matrix valued block entries,
 -`friction_indices` --  is a one-dimensional integer array, which contains all atom indices for which the friction tensor is defined.
 

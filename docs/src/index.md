@@ -1,6 +1,6 @@
 # Introduction
 
-The julia package `ACEfriction.jl` facilitates simulation and machine learning of configuration-dependent friction tensor models from data. The models are based on an equivariant Atomic Cluster Expansion (ACE) and, as such, are computationally highly efficient and size transferable. The underlying framework of model construction is described in detail in [Sachs et al., (2024)](@ref ACEfriction-paper).  
+The julia package `ACEfriction.jl` facilitates simulation and machine learning of configuration-dependent friction tensor models from data. The models are based on an equivariant Atomic Cluster Expansion (ACE) and, as such, are computationally highly efficient and size transferable. The underlying framework of model construction is described in detail in [Sachs et al., (2025)](@ref ACEfriction-paper).  
 
 For a quick start, we recommend reading the [Installation Instructions](installation.md) and the [Overview](overview.md) section, followed by the [Workflow Examples](fitting-eft.md). Detailed documentation of front-end-facing functions can be found in the Function Manual.  
 
@@ -9,6 +9,4 @@ For a quick start, we recommend reading the [Installation Instructions](installa
 
 If you are using `ACEfriction.jl` in your work, please cite the following article: 
 
-* Sachs, M., Stark, W. G., Maurer, R. J., & Ortner, C. (2024). Equivariant Representation of Configuration-Dependent Friction Tensors in Langevin Heatbaths. [[arxiv]](https://doi.org/10.48550/arXiv.2407.13935)
-
-
+* Sachs, M., Stark, W. G., Maurer, R. J., & Ortner, C. (2025). Machine learning configuration-dependent friction tensors in Langevin heatbaths. [[Journal]](https://doi.org/10.1088/2632-2153/ada248), [[arxiv]](https://doi.org/10.48550/arXiv.2407.13935)

@@ -5,9 +5,8 @@ using ACEfriction
 using ACEfriction.AtomCutoffs
 using ACEfriction.FrictionModels
 using ACEfriction.MatrixModels
-using ACEfriction: RWCMatrixModel
+using ACEfriction: CWCMatrixModel
 using Distributions: Categorical
-using JuLIP
 using LinearAlgebra
 using Test
 

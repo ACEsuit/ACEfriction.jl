@@ -1,8 +1,7 @@
 using ACEfriction
-using ACEfriction: RWCMatrixModel
+using ACEfriction: CWCMatrixModel
 using ACEfrictionCore
 using ACEfriction.MatrixModels
-using JuLIP
 
 
 using ACEfriction.FrictionModels
@@ -14,8 +13,7 @@ using LinearAlgebra
 
 
 using Test
-using JuLIP
-using Random 
+using Random
 
 #%% Load data
 
@@ -27,7 +25,7 @@ species_env = [:Cu,:H]
 species_substrat = [:Cu]
 rcut = 5.0
 
-m_inv = RWCMatrixModel(ACEfrictionCore.Invariant(),species_friction,species_env,evalcenter;
+m_inv = CWCMatrixModel(ACEfrictionCore.Invariant(),species_friction,species_env,evalcenter;
     species_substrat = [:Cu],
     n_rep = 1, 
     rcut_on = rcut, 
@@ -40,7 +38,7 @@ m_inv = RWCMatrixModel(ACEfrictionCore.Invariant(),species_friction,species_env,
     species_weight_cat_off = Dict(:H => 1.0, :Cu=> 1.0),
     bond_weight = .5
 );
-m_cov = RWCMatrixModel(ACEfrictionCore.EuclideanVector(Float64),species_friction,species_env,evalcenter;
+m_cov = CWCMatrixModel(ACEfrictionCore.EuclideanVector(Float64),species_friction,species_env,evalcenter;
     species_substrat = [:Cu],
     n_rep=1, rcut_on = rcut, rcut_off = rcut, maxorder_on=2, maxdeg_on=3,
     species_maxorder_dict_on = Dict( :H => 1), 
@@ -49,7 +47,7 @@ m_cov = RWCMatrixModel(ACEfrictionCore.EuclideanVector(Float64),species_friction
     species_weight_cat_off = Dict(:H => 1.0, :Cu=> 1.0),
     bond_weight = .5
 );
-m_equ = RWCMatrixModel(ACEfrictionCore.EuclideanMatrix(Float64),species_friction,species_env,evalcenter;
+m_equ = CWCMatrixModel(ACEfrictionCore.EuclideanMatrix(Float64),species_friction,species_env,evalcenter;
     species_substrat = [:Cu],
     n_rep=1, rcut_on = rcut, rcut_off = rcut, maxorder_on=2, maxdeg_on=3,
     species_maxorder_dict_on = Dict( :H => 1), 

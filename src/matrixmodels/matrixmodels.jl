@@ -1,709 +1,342 @@
 module MatrixModels
 
-export MatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
-export SiteModel, OnSiteModel, OffSiteModel,  OnSiteModels, OffSiteModels, SiteInds
-export onsite_linbasis, offsite_linbasis, env_cutoff, basis_size
-export O3Symmetry, Invariant, VectorEquivariant, MatrixEquivariant
-export Odd, Even, NoZ2Sym
-export SpeciesCoupled, SpeciesUnCoupled
-export NeighborCentered, AtomCentered
-export matrix, basis, params, nparams, set_params!, get_id
+# ET-native matrix models. The basis backend is EquivariantTensors (via
+# ACEfriction.ETBackend); this module keeps the friction-specific machinery
+# (markers, SiteInds, params/format plumbing, matrix!/basis! assembly) that the
+# friction model + fitting layers depend on. (Replaces the ACEfrictionCore version.)
 
+using LinearAlgebra, StaticArrays, SparseArrays
 using LinearAlgebra: Diagonal
-using JuLIP, ACEfrictionCore, ACEfrictionCore.ACEbonds
-using JuLIP: chemical_symbol
-using ACEfrictionCore: SymmetricBasis, LinearACEModel, evaluate
-using ACEfrictionCore.ACEbonds: bonds, env_cutoff
-using ACEfrictionCore.ACEbonds.BondCutoffs: EllipsoidCutoff
-using LinearAlgebra
-using StaticArrays
-using SparseArrays
+using AtomsBase: AbstractSystem, atomic_number
+using NeighbourLists: PairList, sites, neigs
+using Unitful: @u_str
+
 using ACEfriction.mUtils: reinterpret
-using ACEfriction.AtomCutoffs
-using ACEfriction.mUtils: reinterpret
+import ACEfriction.ETBackend
+import ACEfriction.ETBackend: ETInvariant, ETVector, ETMatrix, ETSymMatrix, ETProperty,
+       onsite_basis, bond_basis, evaluate_bond,
+       SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _snowman_combine,
+       ellipsoid_env_transform, spherical_bond_transform, et_bonds, env_cutoff,
+       _atomic_number, _chemical_symbol, block_type, output_LL
+import ACEfriction.ETBackend: write_dict, read_dict
 
-import ACEbase: evaluate, evaluate!
-import ACEfrictionCore: scaling
-import ACEfrictionCore: nparams, params, set_params!
-import ACEfrictionCore: write_dict, read_dict
-import ACEfrictionCore.ACEbonds: env_cutoff
+export MatrixModel, CWCMatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
+export OnSiteModel, OffSiteModel, BondBasis, SiteInds
+export onsite_linbasis, offsite_linbasis, env_cutoff
+export O3Symmetry, Invariant, VectorEquivariant, MatrixEquivariant
+export Odd, Even, NoZ2Sym, SpeciesCoupled, SpeciesUnCoupled
+export NeighborCentered, AtomCentered
+export matrix, basis, params, nparams, set_params!, set_zero!, get_id, randf
 
-using ACEfrictionCore.ACEbonds.BondCutoffs 
-using ACEfrictionCore.ACEbonds.BondCutoffs: AbstractBondCutoff
+# ---------------------------------------------------------------------------
+# markers
 
-using ACEfriction.AtomCutoffs: SphericalCutoff
-using ACEfrictionCore
-using ACEfriction.MatrixModels
-#import ACE.ACEbonds: SymmetricEllipsoidBondBasis
-include("../patches/acebonds_basisselectors.jl")
-using ACEfriction
-using JuLIP: AtomicNumber
-
-ACEfrictionCore.write_dict(v::SVector{N,T}) where {N,T} = v
-ACEfrictionCore.read_dict(v::SVector{N,T}) where {N,T} = v
-
-#ACEfrictionCore.scaling(m::SiteModel,p::Int) = ACEfrictionCore.scaling(m.model.basis,p)
-abstract type O3Symmetry end 
+abstract type O3Symmetry end
 struct Invariant <: O3Symmetry end
 struct VectorEquivariant <: O3Symmetry end
 struct MatrixEquivariant <: O3Symmetry end
 
-abstract type Z2Symmetry end 
+_o3sym(::ETInvariant) = Invariant
+_o3sym(::ETVector)    = VectorEquivariant
+_o3sym(::ETMatrix)    = MatrixEquivariant
+_o3sym(::ETSymMatrix) = MatrixEquivariant
 
+abstract type Z2Symmetry end
 struct Odd <: Z2Symmetry end
 struct Even <: Z2Symmetry end
 struct NoZ2Sym <: Z2Symmetry end
+_z2flag(::NoZ2Sym) = :none
+_z2flag(::Odd) = :odd
+_z2flag(::Even) = :even
 
-function ACEfrictionCore.write_dict(z2s::Z2S) where {Z2S<:Z2Symmetry}
-    return Dict("__id__" => string("ACEfriction_Z2Symmetry"), "z2s"=>typeof(z2s)) 
-end
-
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_Z2Symmetry}, D::Dict) 
-    z2s = getfield(ACEfriction.MatrixModels, Symbol(split(D["z2s"], ".")[end])) # This was exporting it's full type, whereas we just need the last node. 
-    return z2s()
-end
-abstract type SpeciesCoupling end 
-
+abstract type SpeciesCoupling end
 struct SpeciesCoupled <: SpeciesCoupling end
 struct SpeciesUnCoupled <: SpeciesCoupling end
 
-function ACEfrictionCore.write_dict(sc::SC) where {SC<:SpeciesCoupling}
-    return Dict("__id__" => string("ACEfriction_SpeciesCoupling"), "sc"=>typeof(sc)) 
-end
-
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_SpeciesCoupling}, D::Dict) 
-    sc = getfield(ACEfriction.MatrixModels, Symbol(split(D["sc"], ".")[end]))
-    return sc()
-end
-
 abstract type EvaluationCenter end
-
 struct NeighborCentered <: EvaluationCenter end
 struct AtomCentered <: EvaluationCenter end
 
-function ACEfrictionCore.write_dict(evalcenter::EVALCENTER) where {EVALCENTER<:EvaluationCenter}
-    return Dict("__id__" => string("ACEfriction_EvaluationMode"), "evalcenter"=>typeof(evalcenter)) 
+# JuLIP-free helpers (species as Int atomic numbers; neighbour iteration)
+_species(at::AbstractSystem) = Int[ Int(atomic_number(at, i)) for i in 1:length(at) ]
+_sites(at::AbstractSystem, rcut::Real) = sites(PairList(at, rcut * u"Å"))
+_msort(z1, z2) = z1 <= z2 ? (z1, z2) : (z2, z1)
+_mreduce(z1, z2, ::SpeciesUnCoupled) = (z1, z2)
+_mreduce(z1, z2, ::SpeciesCoupled) = _msort(z1, z2)
+_mreduce(z1, z2, ::Type{SpeciesUnCoupled}) = (z1, z2)
+_mreduce(z1, z2, ::Type{SpeciesCoupled}) = _msort(z1, z2)
+
+# ---------------------------------------------------------------------------
+# site models (flattened: ET basis + coefficients, no LinearACEModel)
+
+"""bond basis wrapper carrying the Z2 symmetry tag."""
+struct BondBasis{TB, Z2SYM}
+   basis::TB
+   BondBasis(basis::TB, ::Z2SYM) where {TB, Z2SYM <: Z2Symmetry} = new{TB, Z2SYM}(basis)
 end
-  
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_EvaluationMode}, D::Dict) 
-    evalcenter = getfield(ACEfriction.MatrixModels, Symbol(split(D["evalcenter"], ".")[end]))
-    return evalcenter()
-end
+Base.length(bb::BondBasis) = length(bb.basis)
 
-_mreduce(z1,z2, ::SpeciesUnCoupled) = (z1,z2)
-_mreduce(z1,z2, ::SpeciesCoupled) = _msort(z1,z2)
-_mreduce(z1,z2, ::Type{SpeciesUnCoupled}) = (z1,z2)
-_mreduce(z1,z2, ::Type{SpeciesCoupled}) = _msort(z1,z2)
-
-function _assert_consistency(mkeys, ::SpeciesUnCoupled)
-    return @assert all([((z2,z1) in mkeys && (z1,z2) in mkeys) for (z1,z2) in mkeys])
-end
-
-function _assert_consistency(mkeys, ::SpeciesCoupled)
-    return @assert all([ begin (z1s,z2s) = _msort(z1,z2);
-                                ((z1s,z2s) in mkeys && ((z1s==z2s) || !((z2s,z1s) in mkeys)))
-                         end for (z1,z2) in mkeys])
-end
-
-function _assert_offsite_keys(offsite_dict, ::SpeciesCoupled)
-    return @assert all([(z2,z1)==_msort(z1,z2) for (z1,z2) in keys(offsite_dict)])
-end
-function _assert_offsite_keys(offsite_dict, ::SpeciesUnCoupled)
-    return @assert all([(z2,z1) in keys(offsite_dict)  for (z1,z2) in keys(offsite_dict)])
-end
-
-_o3symmetry(::ACEfrictionCore.SymmetricBasis{PIB,<:ACEfrictionCore.Invariant}) where {PIB} = Invariant
-_o3symmetry(::ACEfrictionCore.SymmetricBasis{PIB,<:ACEfrictionCore.EuclideanVector}) where {PIB} = VectorEquivariant
-_o3symmetry(::ACEfrictionCore.SymmetricBasis{PIB,<:ACEfrictionCore.EuclideanMatrix}) where {PIB} = MatrixEquivariant
-_o3symmetry(m::ACEfrictionCore.LinearACEModel) = _o3symmetry(m.basis)
-
-_n_rep(::ACEfrictionCore.LinearACEModel{TB, SVector{N,T}, TEV}) where {TB,N,T,TEV} = N
-_T(::ACEfrictionCore.LinearACEModel{TB, SVector{N,T}, TEV}) where {TB,N,T,TEV} = T
-
-
-_msort(z1,z2) = (z1<=z2 ? (z1,z2) : (z2,z1))
-# TODO: it may be better to base sorting on Atomic numbers instead of chemical_symbols
-_msort(z1::AtomicNumber,z2::AtomicNumber) = map(AtomicNumber,_msort(chemical_symbol(z1),chemical_symbol(z2)))
-
-NamedCollection = Union{AbstractDict,NamedTuple}
-
-function _o3symmetry(models::NamedCollection) 
-    if isempty(models)
-        return O3Symmetry
-    else
-        O3S = eltype([_o3symmetry(mo.linmodel.basis)()  for mo in values(models)])
-        @assert ( O3S <: O3Symmetry && O3S != O3Symmetry) "Symmetries of model bases inconsistent. Symmetries must be of same type."
-        return O3S 
-    end
-end
-
-function _o3symmetry(onsitemodels::NamedCollection, offsitemodels::NamedCollection) 
-    S1, S2 = _o3symmetry(onsitemodels), _o3symmetry(offsitemodels)
-    @assert S1 <: S2 || S2 <: S1 "Symmetries of onsite and offsite models are inconsistent. These models must have symmetries of same type or one of the model dictionaries must be empty."
-    return (S1 <: S2 ? S1 : S2)
-end
-
-struct BondBasis{TM,Z2SYM}
-    linbasis::TM
-    BondBasis(linbasis::TM,::Z2SYM) where {TM, Z2SYM<:Z2Symmetry}= new{TM,Z2SYM}(linbasis)
-end
-
-Base.length(bb::BondBasis) = length(bb.linbasis)
 abstract type SiteModel end
-# Todo: allow for easy exclusion of onsite and offsite models 
-_n_rep(model::SiteModel) = _n_rep(model.linmodel)
-struct OnSiteModel{O3S,TM} <: SiteModel
-    linmodel::TM
-    cutoff::SphericalCutoff
-    function OnSiteModel(linbasis::TM, cutoff::SphericalCutoff, c::Vector{SVector{N,T}}) where {TM,N,T}
-        @assert length(linbasis) == length(c)
-        linmodel = ACEfrictionCore.LinearACEModel(linbasis, c)
-        return new{_o3symmetry(linmodel),typeof(linmodel)}(linmodel, cutoff)
-    end
-end
-function OnSiteModel(linbasis::TM, cutoff::SphericalCutoff, n_rep::Ti) where {TM, Ti<:Int}
-    return OnSiteModel(linbasis, cutoff, rand(SVector{n_rep,Float64},length(linbasis)))
-end
-OnSiteModel(linbasis::TM,r_cut::T, n_rep::IT) where {TM,T<:Real,IT<:Int} = OnSiteModel(linbasis,SphericalCutoff(r_cut),n_rep)
 
-function ACEfrictionCore.write_dict(m::OnSiteModel{O3S,TM}) where {O3S,TM}
-    T = _T(m.linmodel)
-    c_vec = reinterpret(Vector{T}, m.linmodel.c)
-    n_rep = _n_rep(m.linmodel)
-    return Dict("__id__" => "ACEfriction_OnSiteModel",
-          "linbasis" => ACEfrictionCore.write_dict(m.linmodel.basis),
-          "c_vec" => ACEfrictionCore.write_dict(c_vec),
-          "n_rep" => n_rep,
-          "T" => ACEfrictionCore.write_dict(T),
-          "cutoff" => ACEfrictionCore.write_dict(m.cutoff)
-          )         
+struct OnSiteModel{O3S, NR, TB} <: SiteModel
+   basis::TB
+   c::Vector{SVector{NR, Float64}}
+   cutoff::SphericalCutoff{Float64}
 end
-
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_OnSiteModel}, D::Dict) 
-    linbasis = ACEfrictionCore.read_dict(D["linbasis"])
-    c_vec = ACEfrictionCore.read_dict(D["c_vec"]) 
-    n_rep = D["n_rep"]  
-    T = ACEfrictionCore.read_dict(D["T"])
-    cutoff = ACEfrictionCore.read_dict(D["cutoff"])
-    return OnSiteModel(linbasis, cutoff, reinterpret(Vector{SVector{n_rep, T}}, c_vec))
+function OnSiteModel(basis::TB, cutoff::SphericalCutoff, c::Vector{SVector{NR,Float64}}) where {TB, NR}
+   @assert length(basis) == length(c)
+   O3S = _o3sym(basis.property)
+   return OnSiteModel{O3S, NR, TB}(basis, c, SphericalCutoff{Float64}(cutoff.rcut))
 end
-struct OffSiteModel{O3S,Z2S,CUTOFF,TM} <: SiteModel # where {O3S<:O3Symmetry, CUTOFF<:AbstractCutoff, Z2S<:Z2Symmetry, SPSYM<:SpeciesCoupling}
-    linmodel::TM
-    cutoff::CUTOFF
-    function OffSiteModel(bb::BondBasis{TM,Z2S},  cutoff::CUTOFF, c::Vector{SVector{N,T}}) where  {TM, CUTOFF<:AbstractCutoff, Z2S<:Z2Symmetry, N, T<:Real}
-        @assert length(bb.linbasis) == length(c)
-        linmodel = ACEfrictionCore.LinearACEModel(bb.linbasis,c)
-        return new{_o3symmetry(linmodel),Z2S,CUTOFF,typeof(linmodel)}(linmodel, cutoff)
-    end
+OnSiteModel(basis, cutoff::SphericalCutoff, n_rep::Integer) =
+      OnSiteModel(basis, cutoff, rand(SVector{n_rep, Float64}, length(basis)))
+OnSiteModel(basis, r_cut::Real, n_rep::Integer) =
+      OnSiteModel(basis, SphericalCutoff(Float64(r_cut)), n_rep)
+
+struct OffSiteModel{O3S, Z2S, CUTOFF, NR, TB} <: SiteModel
+   basis::TB
+   c::Vector{SVector{NR, Float64}}
+   cutoff::CUTOFF
 end
-
-function OffSiteModel(bb::BondBasis{TM,Z2S},  cutoff::CUTOFF, n_rep::T) where { T<:Int, TM, CUTOFF<:AbstractCutoff, Z2S<:Z2Symmetry}
-    return OffSiteModel(bb,  cutoff, rand(SVector{n_rep,Float64},length(bb.linbasis)))
+function OffSiteModel(bb::BondBasis{TB, Z2S}, cutoff::CUTOFF, c::Vector{SVector{NR,Float64}}) where {TB, Z2S, CUTOFF, NR}
+   @assert length(bb.basis) == length(c)
+   O3S = _o3sym(bb.basis.property)
+   return OffSiteModel{O3S, Z2S, CUTOFF, NR, TB}(bb.basis, c, cutoff)
 end
+OffSiteModel(bb::BondBasis, cutoff, n_rep::Integer) =
+      OffSiteModel(bb, cutoff, rand(SVector{n_rep, Float64}, length(bb.basis)))
+OffSiteModel(bb::BondBasis, r_cut::Real, n_rep::Integer) =
+      OffSiteModel(bb, SphericalCutoff(Float64(r_cut)), n_rep)
+OffSiteModel(bb::BondBasis, rcutbond::Real, rcutenv::Real, zcutenv::Real, n_rep::Integer) =
+      OffSiteModel(bb, EllipsoidCutoff(Float64(rcutbond), Float64(rcutenv), Float64(zcutenv)), n_rep)
 
-OffSiteModel(bb::BondBasis{TM,Z2S},r_cut::T, n_rep::IT) where {TM,Z2S,T<:Real,IT<:Int} = OffSiteModel(bb, SphericalCutoff(r_cut), n_rep)
-OffSiteModel(bb::BondBasis{TM,Z2S}, rcutbond::T, rcutenv::T, zcutenv::T, n_rep::IT) where {TM,Z2S,T<:Real,IT<:Int} = OffSiteModel(bb, EllipsoidCutoff(rcutbond,rcutenv,zcutenv), n_rep)
+_n_rep(::OnSiteModel{O3S, NR}) where {O3S, NR} = NR
+_n_rep(::OffSiteModel{O3S, Z2S, CUTOFF, NR}) where {O3S, Z2S, CUTOFF, NR} = NR
+_o3symmetry(::OnSiteModel{O3S}) where {O3S} = O3S
+_o3symmetry(::OffSiteModel{O3S}) where {O3S} = O3S
+Base.length(m::SiteModel) = length(m.basis)
+params(m::SiteModel) = m.c
+nparams(m::SiteModel) = length(m.c)
+set_params!(m::SiteModel, c) = (copyto!(m.c, c); m)
 
-function ACEfrictionCore.write_dict(m::OffSiteModel{O3S,Z2S,CUTOFF,TM}) where {O3S,TM,Z2S,CUTOFF}
-    return Dict("__id__" => "ACEfriction_OffSiteModel",
-        "linbasis" => write_dict(m.linmodel.basis),
-          "c" => write_dict(reinterpret(Vector{Float64},params(m.linmodel))),
-          "n_rep"=>_n_rep(m.linmodel),
-          "cutoff" => write_dict(m.cutoff),
-          "Z2S" => write_dict(Z2S()))         
+# contract ET basis blocks with the coefficients -> SVector{NR, block}
+function _contract(m::SiteModel, B)
+   NR = _n_rep(m); TB = block_type(m.basis)
+   Σ = zero(MVector{NR, TB})
+   @inbounds for k in eachindex(B), r in 1:NR
+      Σ[r] += m.c[k][r] * B[k]
+   end
+   return SVector(Σ)
 end
 
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_OffSiteModel}, D::Dict) 
-    linbasis = ACEfrictionCore.read_dict(D["linbasis"])
-    n_rep = D["n_rep"]
-    c = reinterpret(Vector{SVector{n_rep,Float64}}, ACEfrictionCore.read_dict(D["c"]))   
-    cutoff = ACEfrictionCore.read_dict(D["cutoff"])
-    Z2S = ACEfrictionCore.read_dict(D["Z2S"])
-    bondbais = BondBasis(linbasis,Z2S)
-    return OffSiteModel(bondbais, cutoff, c)
-end
+# onsite: raw env vectors (radial transform handles rcut)
+evaluate(sm::OnSiteModel, Rs, Zs) = _contract(sm, ETBackend.evaluate(sm.basis, Rs, Zs))
+evaluate_basis(sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate(sm.basis, Rs, Zs)
 
+# offsite ellipsoid: bond vector + ellipsoid env
+function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S}
+   rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, sm.cutoff)
+   return evaluate_bond(sm.basis, rbond, Rst, Zst)
+end
+evaluate(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S} =
+      _contract(sm, evaluate_basis(sm, rrij, Rs, Zs))
 
-const OnSiteModels{O3S} = Dict{AtomicNumber,<:OnSiteModel{O3S}}
-#linmodel_size(models::OnSiteModels) = sum(length(mo.linmodel.basis) for mo in values(models))
-function ACEfrictionCore.write_dict(onsite::OnSiteModels)
-    return Dict("__id__" => "ACEfriction_onsitemodels",
-                "zval" => Dict(string(chemical_symbol(z))=>ACEfrictionCore.write_dict(val) for (z,val) in onsite)
-                )
+# offsite spherical: atom-i neighbourhood + bond-partner local index
+function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:SphericalCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+   rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, sm.cutoff)
+   return evaluate_bond(sm.basis, rbond, Rse, Zse)
 end
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_onsitemodels}, D::Dict) 
-    return Dict(AtomicNumber(Symbol(z)) => ACEfrictionCore.read_dict(val) for (z,val) in D["zval"])  
-end
+evaluate(sm::OffSiteModel{O3S,Z2S,<:SphericalCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S} =
+      _contract(sm, evaluate_basis(sm, j_loc, Rs, Zs))
 
-const OffSiteModels{O3S,Z2S,CUTOFF} = Dict{Tuple{AtomicNumber, AtomicNumber},<:OffSiteModel{O3S,Z2S,CUTOFF}}
-#linmodel_size(models::OffSiteModels) = sum(length(mo.linmodel.basis) for mo in values(models))
-function ACEfrictionCore.write_dict(offsite::OffSiteModels)
-    return Dict("__id__" => "ACEfriction_offsitemodels",
-                "vals" => Dict(i=>ACEfrictionCore.write_dict(val) for (i,val) in enumerate(values(offsite))),
-                "z1" => Dict(i=>string(chemical_symbol(zz[1])) for (i,zz) in enumerate(keys(offsite))),
-                "z2" => Dict(i=>string(chemical_symbol(zz[2])) for (i,zz) in enumerate(keys(offsite)))
-    )
+# offsite snowman: single-centre spherical evaluation (same as spherical). The two
+# bond ends are combined at assembly time in pwcmatrixmodels.jl (Σ_ij = c·B(env_ij)
+# + c·B(env_ji)), so per-centre evaluation reuses the spherical transform.
+function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:SnowManCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+   rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, sm.cutoff)
+   return evaluate_bond(sm.basis, rbond, Rse, Zse)
 end
-function ACEfrictionCore.read_dict(::Val{:ACEfriction_offsitemodels}, D::Dict) 
-    return Dict( (AtomicNumber(Symbol(z1)),AtomicNumber(Symbol(z2))) => ACEfrictionCore.read_dict(val)   for (z1,z2,val) in zip(values(D["z1"]),values(D["z2"]),values(D["vals"])))  
-end
-const SiteModels = Union{OnSiteModels,OffSiteModels}
+evaluate(sm::OffSiteModel{O3S,Z2S,<:SnowManCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S} =
+      _contract(sm, evaluate_basis(sm, j_loc, Rs, Zs))
+
+const OnSiteModels{O3S} = Dict{Int, <:OnSiteModel{O3S}}
+const OffSiteModels{O3S, Z2S, CUTOFF} = Dict{Tuple{Int,Int}, <:OffSiteModel{O3S, Z2S, CUTOFF}}
+const SiteModels = Union{OnSiteModels, OffSiteModels}
 
 function _n_rep(models::SiteModels)
-    n_reps = _n_rep.(values(models))
-    @assert length(unique(n_reps)) == 1
-    return n_reps[1]
+   n = unique(_n_rep(m) for m in values(models)); @assert length(n) == 1; return n[1]
 end
-linmodel_size(models::SiteModels) = sum(length(mo.linmodel.basis) for mo in values(models))
+env_cutoff(models::SiteModels) = maximum(env_cutoff(m.cutoff) for m in values(models))
 
-env_cutoff(models::SiteModels) = maximum(env_cutoff(mo.cutoff) for mo in values(models))
+# ---------------------------------------------------------------------------
+# SiteInds (basis-function index ranges per species / species-pair)
 
-
-
-# struct PWCoupledMatrixModel{O3S,TM,SPSYM,Z2S,CUTOFF} 
-#     onsite::Dict{AtomicNumber,OnSiteModel{O3S,TM}}
-#     offsite::Dict{Tuple{AtomicNumber,AtomicNumber},OffSiteModel{O3S,TM,SPSYM,Z2S,CUTOFF}}
-#     n_rep::Int
-#     inds::SiteInds
-#     id::Symbol
-# end
-
-
-
-
-    # function OffSiteModels(models::Dict{Tuple{AtomicNumber,AtomicNumber}, TM}, env::CUTOFF, ::SPSYM, ::Z2S) where {TM, CUTOFF, Z2S, SPSYM} # this is a bit of hack. We directly provide the bond symmetry here as we can't infere it because it's built into the symmetric basis.
-    #     if SPSYM<:SpeciesCoupled
-    #         @assert all(_msort(zz...) == zz for zz in keys(models))
-    #     elseif SPSYM<:SpeciesUnCoupled
-    #         @assert all((z2,z1) in keys(models) for (z1,z2) in keys(models))
-    #     end
-    #     return new{_o3symmetry(models),SPSYM,Z2S,CUTOFF,TM}(models, env) 
-    # end
-
-
-# function OffSiteBasis(species;
-#     z2symmetry = NoZ2Sym(), 
-#     maxorder = 2,
-#     maxdeg = 5,
-#     r0_ratio=.4,
-#     rin_ratio=.04, 
-#     pcut=2, 
-#     pin=2, 
-#     trans= polytransform(2, r0_ratio), 
-#     isym=:mube, 
-#     weight = Dict(:l => 1.0, :n => 1.0),
-#     p_sel = 2,
-#     bond_weight = 1.0,
-#     species_minorder_dict = Dict{Any, Float64}(),
-#     species_maxorder_dict = Dict{Any, Float64}(),
-#     species_weight_cat = Dict(c => 1.0 for c in species),
-#     )
-#     @time offsite = SymmetricEllipsoidBondBasis(property; 
-#                 r0 = r0_ratio, 
-#                 rin = rin_ratio, 
-#                 pcut = pcut, 
-#                 pin = pin, 
-#                 trans = trans, #warning: the polytransform acts on [0,1]
-#                 p = p_sel, 
-#                 weight = weight, 
-#                 maxorder = maxorder,
-#                 default_maxdeg = maxdeg,
-#                 species_minorder_dict = species_minorder_dict,
-#                 species_maxorder_dict = species_maxorder_dict,
-#                 species_weight_cat = species_weight_cat,
-#                 bondsymmetry=_z2couplingToString(z2symmetry),
-#                 species=species, 
-#                 isym=isym, 
-#                 bond_weight = bond_weight,  
-#     )
-#     return offsite
-# end
-
-
-# function OffSiteModels(models::Dict{Tuple{AtomicNumber, AtomicNumber},TM}, rcut::T, spsym=SpeciesUnCoupled()) where {T<:Real,TM} 
-#     return OffSiteModels(models,SphericalCutoff(rcut), NoZ2Sym(), spsym)
-# end
-
-# function OffSiteModels(models::Dict{Tuple{AtomicNumber, AtomicNumber},TM}, 
-#     rcutbond::T, rcutenv::T, zcutenv::T, z2sym=NoZ2Sym(), spsym=SpeciesUnCoupled()) where {T<:Real,TM}
-#     return OffSiteModels(models, EllipsoidCutoff(rcutbond, rcutenv, zcutenv), z2sym, spsym)
-# end
-
-
-ACEfrictionCore.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACEfrictionCore.ACEbonds.bonds(at, Dict(zz=> mo.cutoff for (zz,mo) in offsite), site_filter) 
-#ACEfrictionCore.ACEbonds.bonds(at::Atoms, curoff::EllipsoidCutoff, site_filter) = ACEfrictionCore.ACEbonds.bonds(at, cutoff, site_filter) 
-
-# ACEfrictionCore.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACEfrictionCore.ACEbonds.bonds( at, envoffsite.env.rcutbond, 
-#     max(offsite.env.rcutbond*.5 + offsite.env.zcutenv, 
-#         sqrt((offsite.env.rcutbond*.5)^2+ offsite.env.rcutenv^2)),
-#                 (r, z, zzi, zzj) -> env_filter(r, z, offsite[_msort(zzi,zzj)].cutoff), site_filter )
-
-# ACEfrictionCore.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) = ACEfrictionCore.ACEbonds.bonds( at, offsite.env.rcutbond, 
-#     max(offsite.env.rcutbond*.5 + offsite.env.zcutenv, 
-#         sqrt((offsite.env.rcutbond*.5)^2+ offsite.env.rcutenv^2)),
-#                 (r, z, i, j) -> env_filter(r, z), site_filter )
 struct SiteInds
-    onsite::Dict{AtomicNumber, UnitRange{Int}}
-    offsite::Dict{Tuple{AtomicNumber, AtomicNumber}, UnitRange{Int}}
+   onsite::Dict{Int, UnitRange{Int}}
+   offsite::Dict{Tuple{Int,Int}, UnitRange{Int}}
 end
-SiteInds(onsite::Dict{AtomicNumber, UnitRange{Int}}) = SiteInds(onsite, Dict{Tuple{AtomicNumber, AtomicNumber}, UnitRange{Int}}())
-SiteInds(offsite::Dict{Tuple{AtomicNumber, AtomicNumber}, UnitRange{Int}}) = SiteInds(Dict{AtomicNumber, UnitRange{Int}}(), offsite)
-# function SiteInds(onsite::Dict{AtomicNumber, UnitRange{Int}}, offsite::Dict{Tuple{AtomicNumber, AtomicNumber}, UnitRange{Int}}, speciescoupling::SPSYM )
-#     _assert_offsite_keys(offsite,speciescoupling)
-#     new{SPSYM}(onsite, offsite)
-# end
+SiteInds(onsite::Dict{Int, UnitRange{Int}}) = SiteInds(onsite, Dict{Tuple{Int,Int}, UnitRange{Int}}())
+SiteInds(offsite::Dict{Tuple{Int,Int}, UnitRange{Int}}) = SiteInds(Dict{Int, UnitRange{Int}}(), offsite)
 
-function Base.length(inds::SiteInds)
-    return length(inds, :onsite) + length(inds, :offsite)
-end
+Base.length(inds::SiteInds) = length(inds, :onsite) + length(inds, :offsite)
+Base.length(inds::SiteInds, site::Symbol) =
+      isempty(getfield(inds, site)) ? 0 : sum(length(r) for r in values(getfield(inds, site)))
+get_range(inds::SiteInds, z::Int) = inds.onsite[z]
+get_range(inds::SiteInds, zz::Tuple{Int,Int}) = inds.offsite[zz]
 
-function Base.length(inds::SiteInds, site::Symbol)
-    return  (isempty(getfield(inds, site)) ? 0 : sum(length(irange) for irange in values(getfield(inds, site))))
-end
-
-function get_range(inds::SiteInds, z::AtomicNumber)
-    return inds.onsite[z]
+function _get_basisinds(models::Dict{Z, TM}) where {Z, TM}
+   inds = Dict{Z, UnitRange{Int}}(); i0 = 1
+   for (zz, mo) in models
+      len = nparams(mo); inds[zz] = i0:(i0+len-1); i0 += len
+   end
+   return inds
 end
 
-function get_range(inds::SiteInds, zz::Tuple{AtomicNumber, AtomicNumber})
-    return inds.offsite[zz]
-end
-
-function model_key(site::Symbol, index::Int)
-    site_inds = getfield(inds, site)
-    for zzz in keys(site_inds)
-        zrange = get_range(inds, zzz)
-        if index in zrange
-            return zrange, zzz
-        end
-    end
-    @error "Index $index outside of permittable range."
-end
+# ---------------------------------------------------------------------------
+# MatrixModel abstract + block helpers
 
 abstract type MatrixModel{S} end
 
 _default_id(::Type{Invariant}) = :inv
 _default_id(::Type{VectorEquivariant}) = :cov
-_default_id(::Type{MatrixEquivariant}) = :equ 
+_default_id(::Type{MatrixEquivariant}) = :equ
+_default_id(::Type{<:O3Symmetry}) = :equ
 
-_block_type(::MatrixModel{Invariant},T=Float64) = SMatrix{3, 3, T, 9}
-_block_type(::MatrixModel{VectorEquivariant},T=Float64) =  SVector{3,T}
-_block_type(::MatrixModel{MatrixEquivariant},T=Float64) = SMatrix{3, 3, T, 9}
-
-_val2block(::MatrixModel{Invariant}, val::T) where {T<:Number}= SMatrix{3,3,T,9}(Diagonal([val,val,val]))
-_val2block(::MatrixModel{VectorEquivariant}, val) = val
-_val2block(::MatrixModel{MatrixEquivariant}, val) = val
+_block_type(::MatrixModel{Invariant}, T = Float64) = SMatrix{3, 3, T, 9}
+_block_type(::MatrixModel{VectorEquivariant}, T = Float64) = SVector{3, T}
+_block_type(::MatrixModel{MatrixEquivariant}, T = Float64) = SMatrix{3, 3, T, 9}
 
 _n_rep(M::MatrixModel) = M.n_rep
-
-evaluate(sm::OnSiteModel, Rs, Zs) = evaluate(sm.linmodel, env_transform(Rs, Zs, sm.cutoff))
-evaluate(sm::OffSiteModel, rrij, zi::AtomicNumber, zj::AtomicNumber, Rs, Zs) = evaluate(sm.linmodel, env_transform(rrij, zi, zj, Rs, Zs, sm.cutoff)) 
-
-
-_z2couplingToString(::NoZ2Sym) = "noz2sym"
-_z2couplingToString(::Even) = "Even"
-_z2couplingToString(::Odd) = "Odd"
-
-_cutoff(cutoff::SphericalCutoff) = cutoff.r_cut
-_cutoff(cutoff::EllipsoidCutoff) = cutoff.r_cut
-
-
-"""
-`NoMolOnly`: selects all basis functions which model interactions between atoms of the molecule only. Use this filter if the molecule feels only
-friction if in contact to the substrat.   
-"""
-struct NoMolOnly
-      isym::Symbol
-      categories
-end
-  
-function (f::NoMolOnly)(bb) 
-      if isempty(bb)
-            return true
-      else
-            return !all([getproperty(b, f.isym) in f.categories for b in bb])
-      end
-end
-
-"""
-`SubstratContactFilter`: returns true if the basis function includes at least one interactions with a substrat atom.
-
-"""
-struct SubstratContactFilter
-      isym::Symbol
-      substrat_atoms # List or set of chemical symbols of substrats atoms 
-end
-  
-function (f::SubstratContactFilter)(bb) 
-      if isempty(bb)
-            return true
-      else
-            return sum([getproperty(b, f.isym) in f.substrat_atoms for b in bb]) > 0
-      end
-end
-
-
-function offsite_linbasis(property,species;
-    z2symmetry = NoZ2Sym(), 
-    maxorder = 2,
-    maxdeg = 5,
-    r0_ratio=.4,
-    rin_ratio=.04, 
-    pcut=2, 
-    pin=2, 
-    trans= polytransform(2, r0_ratio), 
-    isym=:mube, 
-    weight = Dict(:l => 1.0, :n => 1.0),
-    p_sel = 2,
-    bond_weight = 1.0,
-    species_minorder_dict = Dict{Any, Float64}(),
-    species_maxorder_dict = Dict{Any, Float64}(),
-    species_weight_cat = Dict(c => 1.0 for c in species),
-    species_substrat = []
-    )
-    if isempty(species_substrat)
-        filterfun = _ -> true
-    else
-        filterfun = SubstratContactFilter(:mube, species_substrat)
-    end 
-
-    @info "Generate offsite basis"
-    @time offsite = SymmetricEllipsoidBondBasis2(property; 
-                r0 = r0_ratio, 
-                rin = rin_ratio, 
-                pcut = pcut, 
-                pin = pin, 
-                trans = trans, #warning: the polytransform acts on [0,1]
-                p = p_sel, 
-                weight = weight, 
-                maxorder = maxorder,
-                default_maxdeg = maxdeg,
-                species_minorder_dict = species_minorder_dict,
-                species_maxorder_dict = species_maxorder_dict,
-                species_weight_cat = species_weight_cat,
-                bondsymmetry=_z2couplingToString(z2symmetry),
-                species=species, 
-                isym=isym, 
-                bond_weight = bond_weight,
-                filterfun = filterfun
-    )
-    @info "Size of offsite basis elements: $(length(offsite))"
-    return BondBasis(offsite,z2symmetry)
-end
-
-function onsite_linbasis(property,species;
-    maxorder=2, maxdeg=5, r0_ratio=.4, rin_ratio=.04, pcut=2, pin=2,
-    trans= polytransform(2, r0_ratio), #warning: the polytransform acts on [0,1]
-    p_sel = 2, 
-    species_minorder_dict = Dict{Any, Float64}(),
-    species_maxorder_dict = Dict{Any, Float64}(),
-    weight = Dict(:l => 1.0, :n => 1.0), 
-    species_weight_cat = Dict(c => 1.0 for c in species),
-    species_substrat = []
-    )
-    @info "Generate onsite basis"
-    Bsel = ACEfrictionCore.SparseBasis(; maxorder=maxorder, p = p_sel, default_maxdeg = maxdeg, weight=weight ) 
-    RnYlm = ACEfrictionCore.Utils.RnYlm_1pbasis(;  
-            r0 = r0_ratio,
-            rin = rin_ratio,
-            trans = trans, 
-            pcut = pcut,
-            pin = pin, 
-            Bsel = Bsel, 
-            rcut=1.0,
-            maxdeg= maxdeg * max(1,Int(ceil(1/minimum(values(species_weight_cat)))))
-        );
-    Zk = ACEfrictionCore.Categorical1pBasis(species; varsym = :mu, idxsym = :mu) #label = "Zk"
-    Bselcat = ACEfrictionCore.CategorySparseBasis(:mu, species;
-        maxorder = ACEfrictionCore.maxorder(Bsel), 
-        p = Bsel.p, 
-        weight = Bsel.weight, 
-        maxlevels = Bsel.maxlevels,
-        minorder_dict = species_minorder_dict,
-        maxorder_dict = species_maxorder_dict, 
-        weight_cat = species_weight_cat
-    )
-    if isempty(species_substrat)
-        filter = _ -> true
-    else
-        filter = SubstratContactFilter(:mu, species_substrat)
-    end
-    @time onsite = ACEfrictionCore.SymmetricBasis(property, RnYlm * Zk, Bselcat; filterfun=filter);
-    @info "Size of onsite basis: $(length(onsite))"
-    return onsite
-end
-
-function ACEfrictionCore.scaling(mb::MatrixModel, p::Int) 
-    scale = (onsite=ones(length(mb,:onsite)), offsite=ones(length(mb,:offsite)))
-    for site in [:onsite,:offsite]
-        site = getfield(mb,site)
-        for (zz, mo) in site.models
-            scale[:onsite][get_range(mb,zz)] = ACEfrictionCore.scaling(mo.basis,p)
-        end
-    end
-    return scale
-end
-
-Base.length(m::MatrixModel,args...) = length(m.inds,args...)
-
-get_range(m::MatrixModel,args...) = get_range(m.inds,args...)
-get_interaction(m::MatrixModel,args...) = get_interaction(m.inds,args...)
-
-
-# function _get_basisinds(onsitemodels::Dict{AtomicNumber, TM1},offsitemodels::Dict{Tuple{AtomicNumber, AtomicNumber}, TM2}) where {TM1, TM2}
-#     return SiteInds(_get_basisinds(onsitemodels), _get_basisinds(offsitemodels))
-# end
-
-function _get_basisinds(models::Dict{Z, TM}) where {Z,TM}
-    inds = Dict{Z, UnitRange{Int}}()
-    i0 = 1
-    for (zz, mo) in models
-        @assert typeof(mo.linmodel) <: ACEfrictionCore.LinearACEModel
-        len = nparams(mo.linmodel)
-        inds[zz] = i0:(i0+len-1)
-        i0 += len
-    end
-    return inds
-end
-
-
-_get_model(calc::MatrixModel, zz::Tuple{AtomicNumber,AtomicNumber}) = calc.offsite[zz]
-_get_model(calc::MatrixModel, z::AtomicNumber) =  calc.onsite[z]
-
-
-
-function ACEfrictionCore.params(mb::MatrixModel; format=:matrix, joinsites=true) # :vector, :matrix
-    @assert format in [:native, :matrix]
-    if joinsites  
-        return vcat(ACEfrictionCore.params(mb, :onsite; format=format), ACEfrictionCore.params(mb, :offsite; format=format))
-    else 
-        return (onsite=ACEfrictionCore.params(mb, :onsite;  format=format),
-                offsite=ACEfrictionCore.params(mb, :offsite; format=format))
-    end
-end
-
-
-function ACEfrictionCore.params(mb::MatrixModel, site::Symbol; format=:matrix)
-    θ = zeros(SVector{mb.n_rep,Float64}, nparams(mb, site))
-    for z in keys(getfield(mb,site))
-        sm = _get_model(mb, z)
-        inds = get_range(mb, z)
-        θ[inds] = params(sm.linmodel) 
-    end
-    return _transform(θ, Val(format), mb.n_rep)
-end
-
-function ACEfrictionCore.params(calc::MatrixModel, zzz::Union{AtomicNumber,Tuple{AtomicNumber,AtomicNumber}})
-    return params(_get_model(calc,zzz))
-end
-
-
-function ACEfrictionCore.nparams(mb::MatrixModel)
-    return length(mb.inds, :onsite) + length(mb.inds, offsite)
-end
-
-function ACEfrictionCore.nparams(mb::MatrixModel, site::Symbol)
-    return length(mb.inds, site)
-end
-
-function ACEfrictionCore.nparams(calc::MatrixModel, zzz::Union{AtomicNumber,Tuple{AtomicNumber,AtomicNumber}}) # make zzz
-    return nparams(_get_model(calc,zzz))
-end
-
-# function ACE.set_params!(mb::MatrixModel, θ::Vector)
-#     ACE.set_params!(mb, :onsite,  θ.onsite)
-#     ACE.set_params!(mb, :offsite, θ.offsite)
-# end
-
-function ACEfrictionCore.set_params!(mb::MatrixModel, θ)
-    θt = _split_sites(mb, θ) 
-    ACEfrictionCore.set_params!(mb::MatrixModel, θt)
-end
-
-function set_params!(mb::MatrixModel, site::Symbol, θ)
-    θt = _rev_transform(θ, mb.n_rep)
-    sitedict = getfield(mb, site)
-    for z in keys(sitedict)
-        ACEfrictionCore.set_params!(_get_model(mb,z),θt[get_range(mb,z)]) 
-    end
-end
-
-set_params!(model::SiteModel, θt) = set_params!(model.linmodel, θt)
-
-function ACEfrictionCore.set_params!(calc::MatrixModel, zzz::Union{AtomicNumber,Tuple{AtomicNumber,AtomicNumber}}, θ)
-    return ACEfrictionCore.set_params!(_get_model(calc,zzz),θ)
-end
-
-function set_zero!(mb::MatrixModel)
-    for site in [:onsite,:offsite]
-        ACEfrictionCore.set_zero!(mb, site)
-    end
-end
-
-function set_zero!(mb::MatrixModel, site::Symbol)
-    θ = zeros(size(params(mb, site; format=:matrix)))
-    ACEfrictionCore.set_params!(mb, θ)
-end
-
-# Auxiliary functions to handle different formats of parameters (as NamedTuple vs one block & Matrix vs Vector{SVector{...}})  and basis (as NamedTuple vs one bloc 
-_join_sites(h1,h2) = vcat(h1,h2)
-
-function _split_sites(mb::MatrixModel, h::Vector) 
-    imax_onsite = length(mb,:onsite)
-    return (onsite=h[1:imax_onsite], offsite=h[(imax_onsite+1):end])
-end
-function _split_sites(mb::MatrixModel, H::Matrix) 
-    imax_onsite = length(mb,:onsite)
-    return (onsite=H[1:imax_onsite,:], offsite=H[(imax_onsite+1):end,:])
-end
-
-function _transform(θ, ::Val{:matrix}, n_rep)
-    return reinterpret(Matrix{Float64}, θ)
-end
-function _transform(θ, ::Val{:native}, n_rep)
-    return reinterpret(Vector{SVector{n_rep,Float64}}, θ)
-end
-function _rev_transform(θ, n_rep)
-    return reinterpret(Vector{SVector{n_rep,Float64}}, θ)
-end
-
-
-function matrix(M::MatrixModel, at::Atoms;  filter=(_,_)->true, T=Float64) 
-    A = allocate_matrix(M, at, T)
-    matrix!(M, at, A, filter)
-    return A
-end
-
-# TODO: most matrix and basis allocation and assembly methods use bad practice. They should be rewritten for efficiency purposes. 
-function allocate_matrix(M::MatrixModel, at::Atoms,  T=Float64) 
-    N = length(at)
-    A = [spzeros(_block_type(M,T),N,N) for _ = 1:M.n_rep]
-    return A
-end
-
-function basis(M::MatrixModel, at::Atoms; join_sites=false, filter=(_,_)->true, T=Float64) 
-    B = allocate_B(M, at, T)
-    basis!(B, M, at, filter)
-    return (join_sites ? _join_sites(B.onsite,B.offsite) : B)
-end
-
-
-function allocate_B(M::MatrixModel, at::Atoms, T=Float64)
-    N = length(at)
-    B_onsite = [Diagonal( zeros(_block_type(M,T),N)) for _ = 1:length(M.inds,:onsite)]
-    B_offsite = [spzeros(_block_type(M,T),N,N) for _ =  1:length(M.inds,:offsite)]
-    return (onsite=B_onsite, offsite=B_offsite)
-end
-
-randf(M::MT, Σ_vec::Array{T,1}) where {MT<:MatrixModel, T} = sum(randf(M,Σ) for Σ in Σ_vec)
-
 get_id(M::MatrixModel) = M.id
 
-# Atom-centered matrix models: 
-include("./acmatrixmodels.jl")
-# Pairwise Coupled matrix models:
-include("./pwcmatrixmodels.jl")
-# Omsite-only matrix models:
+# `Sigma(M, at)` returns one (sparse / Diagonal) matrix per replica; the per-replica
+# `randf` methods (in the model files) draw an independent random force for each, and
+# the model's random force is their sum.
+randf(M::MatrixModel, Σ_vec::AbstractVector) = sum(randf(M, Σ) for Σ in Σ_vec)
+Base.length(m::MatrixModel, args...) = length(m.inds, args...)
+get_range(m::MatrixModel, args...) = get_range(m.inds, args...)
+_get_model(M::MatrixModel, zz::Tuple{Int,Int}) = M.offsite[zz]
+_get_model(M::MatrixModel, z::Int) = M.onsite[z]
+
+# ---------------------------------------------------------------------------
+# params / format plumbing (unchanged machinery; operates on c::Vector{SVector})
+
+function params(mb::MatrixModel; format = :matrix, joinsites = true)
+   @assert format in [:native, :matrix]
+   if joinsites
+      return vcat(params(mb, :onsite; format = format), params(mb, :offsite; format = format))
+   else
+      return (onsite = params(mb, :onsite; format = format),
+              offsite = params(mb, :offsite; format = format))
+   end
+end
+
+# site model dict for a model that may not have both onsite/offsite fields
+_site_dict(mb::MatrixModel, site::Symbol) =
+      hasfield(typeof(mb), site) ? getfield(mb, site) : Dict{Any,Any}()
+
+function params(mb::MatrixModel, site::Symbol; format = :matrix)
+   θ = zeros(SVector{mb.n_rep, Float64}, nparams(mb, site))
+   for z in keys(_site_dict(mb, site))
+      θ[get_range(mb, z)] = params(_get_model(mb, z))
+   end
+   return _transform(θ, Val(format), mb.n_rep)
+end
+
+nparams(mb::MatrixModel) = length(mb.inds, :onsite) + length(mb.inds, :offsite)
+nparams(mb::MatrixModel, site::Symbol) = length(mb.inds, site)
+
+function set_params!(mb::MatrixModel, θ)
+   set_params!(mb, _split_sites(mb, θ))
+end
+function set_params!(mb::MatrixModel, θ::NamedTuple)
+   for site in keys(θ); set_params!(mb, site, θ[site]); end
+   return mb
+end
+function set_params!(mb::MatrixModel, site::Symbol, θ)
+   hasfield(typeof(mb), site) || return mb
+   θt = _rev_transform(θ, mb.n_rep)
+   for z in keys(getfield(mb, site))
+      set_params!(_get_model(mb, z), θt[get_range(mb, z)])
+   end
+   return mb
+end
+function set_zero!(mb::MatrixModel)
+   for site in (:onsite, :offsite)
+      hasfield(typeof(mb), site) || continue
+      set_params!(mb, site, zeros(size(params(mb, site; format = :matrix))))
+   end
+   return mb
+end
+
+_join_sites(h1, h2) = vcat(h1, h2)
+function _split_sites(mb::MatrixModel, h::Vector)
+   i = length(mb, :onsite); return (onsite = h[1:i], offsite = h[(i+1):end])
+end
+function _split_sites(mb::MatrixModel, H::Matrix)
+   i = length(mb, :onsite); return (onsite = H[1:i, :], offsite = H[(i+1):end, :])
+end
+_transform(θ, ::Val{:matrix}, n_rep) = reinterpret(Matrix{Float64}, θ)
+_transform(θ, ::Val{:native}, n_rep) = reinterpret(Vector{SVector{n_rep, Float64}}, θ)
+_rev_transform(θ, n_rep) = reinterpret(Vector{SVector{n_rep, Float64}}, θ)
+
+function scaling(mb::MatrixModel, p::Int)
+   scale = (onsite = ones(length(mb, :onsite)), offsite = ones(length(mb, :offsite)))
+   for site in (:onsite, :offsite)
+      hasfield(typeof(mb), site) || continue
+      for (zz, mo) in getfield(mb, site)
+         scale[site][get_range(mb, zz)] = ETBackend.scaling(mo.basis, p)
+      end
+   end
+   return scale
+end
+
+# ---------------------------------------------------------------------------
+# basis builders (delegate to ETBackend)
+
+_z2_sym(::NoZ2Sym) = NoZ2Sym(); _z2_sym(::Odd) = Odd(); _z2_sym(::Even) = Even()
+
+function onsite_linbasis(property::ETProperty, species;
+            rcut = 5.0, maxorder = 2, maxdeg = 5, maxl = Int(floor(maxdeg)),
+            r0_ratio = 0.4, rin_ratio = 0.04, pcut = 2, pin = 2, p_sel = 2,
+            weight = Dict(:n => 1.0, :l => 1.0),
+            species_minorder_dict = Dict{Any, Float64}(),
+            species_maxorder_dict = Dict{Any, Float64}(),
+            species_weight_cat = Dict(c => 1.0 for c in species),
+            species_substrat = [], kwargs...)
+   return onsite_basis(property, species;
+            rcut = rcut, maxorder = maxorder, maxdeg = maxdeg, maxl = maxl,
+            r0_ratio = r0_ratio, rin_ratio = rin_ratio, pcut = pcut, pin = pin,
+            weight = weight, p_sel = p_sel,
+            species_weight_cat = species_weight_cat,
+            species_minorder_dict = species_minorder_dict,
+            species_maxorder_dict = species_maxorder_dict)
+end
+
+function offsite_linbasis(property::ETProperty, species;
+            z2symmetry = NoZ2Sym(), rcut = 1.0, maxorder = 2, maxdeg = 5,
+            maxl = Int(floor(maxdeg)),
+            r0_ratio = 0.4, rin_ratio = 0.04, pcut = 2, pin = 2, p_sel = 2,
+            weight = Dict(:n => 1.0, :l => 1.0), bond_weight = 1.0,
+            species_minorder_dict = Dict{Any, Float64}(),
+            species_maxorder_dict = Dict{Any, Float64}(),
+            species_weight_cat = Dict(c => 1.0 for c in species),
+            species_substrat = [], isym = :mube, kwargs...)
+   b = bond_basis(property, species;
+            z2sym = _z2flag(z2symmetry), rcut = rcut, maxorder = maxorder,
+            maxdeg = maxdeg, maxl = maxl, r0_ratio = r0_ratio, rin_ratio = rin_ratio,
+            pcut = pcut, pin = pin, weight = weight, p_sel = p_sel,
+            bond_weight = bond_weight, species_weight_cat = species_weight_cat,
+            species_minorder_dict = species_minorder_dict,
+            species_maxorder_dict = species_maxorder_dict)
+   return BondBasis(b, z2symmetry)
+end
+
+# ---------------------------------------------------------------------------
+# matrix / basis assembly + the concrete models
+
 include("./onsiteonlymatrixmodels.jl")
+include("./pwcmatrixmodels.jl")
+include("./acmatrixmodels.jl")
 
 end

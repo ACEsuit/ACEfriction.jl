@@ -26,8 +26,7 @@ makedocs(;
             "Overview" => "overview.md"
             ], 
         "Workflow Examples" => Any[
-                "Fitting an Electronic Friction Tensor" => "fitting-eft.md",
-                "Fitting a Dissipative Particle Dynamics Friction Model" => "fitting-mbdpd.md"
+                "Fitting an Electronic Friction Tensor" => "fitting-eft.md"
             ],
         # "Importing & Exporting Friction Data" => Any[
         #         "data-import-export.md",

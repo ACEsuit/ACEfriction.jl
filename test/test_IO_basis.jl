@@ -1,7 +1,6 @@
 using ACEfrictionCore
-using ACEfrictionCore, JuLIP, ACEbase
+using ACEfrictionCore, ACEbase
 using ACEfrictionCore: save_json, load_json
-using JuLIP: AtomicNumber
 #import ACEfrictionCore: write_dict, read_dict
 using StaticArrays
 using LinearAlgebra
