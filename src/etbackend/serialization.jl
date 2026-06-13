@@ -31,18 +31,21 @@ function rebuild_basis(recipe::AbstractDict)
    radial = Dict(Symbol(k) => v for (k, v) in recipe["radial"])
    sel = _selection_kwargs(recipe["selection"])
    kind = recipe["kind"]
+   # default false: recipes saved before O(3) parity selection existed were built
+   # under the SO(3)-only code, so rebuild them identically.
+   o3symmetry = get(recipe, "o3symmetry", false)
    if kind == "onsite"
       return onsite_basis(prop, species;
                rcut = recipe["rcut"], maxorder = recipe["maxorder"],
                maxdeg = recipe["maxdeg"], maxl = recipe["maxl"],
-               sel..., radial...)
+               o3symmetry = o3symmetry, sel..., radial...)
    elseif kind == "bond"
       return bond_basis(prop, species;
                z2sym = Symbol(recipe["z2sym"]),
                rcut = recipe["rcut"], maxorder = recipe["maxorder"],
                maxdeg = recipe["maxdeg"], maxl = recipe["maxl"],
                bond_weight = recipe["selection"]["bond_weight"],
-               sel..., radial...)
+               o3symmetry = o3symmetry, sel..., radial...)
    else
       error("unknown basis recipe kind = $kind")
    end

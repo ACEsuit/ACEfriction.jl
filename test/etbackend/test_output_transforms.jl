@@ -18,9 +18,13 @@ Rnl_spec = P4ML.natural_indices(rbasis)
 ybasis = P4ML.real_sphericalharmonics(maxl)
 Ylm_spec = P4ML.natural_indices(ybasis)
 
-build_tensor(prop) = ET.sparse_equivariant_tensors(;
-      LL = output_LL(prop), mb_spec = mb_spec,
-      Rnl_spec = Rnl_spec, Ylm_spec = Ylm_spec, basis = real)
+# O(3): restrict mb_spec to the property's required total-l parity (the selection
+# that `onsite_basis`/`bond_basis` apply when o3symmetry=true), then build the
+# tensor + matched output transform, dropping any empty L channel.
+function build_tensor(prop)
+   spec = filter(bb -> _parity_ok(bb, required_parity(prop)), mb_spec)
+   return build_equivariant_tensor(prop, spec, Rnl_spec, Ylm_spec)
+end
 
 function eval_blocks(tensor, out, Rs)
    rs = norm.(Rs)
@@ -37,14 +41,17 @@ transform(::ETVector,    Q, b) = Q * b
 transform(::ETMatrix,    Q, b) = Q * b * Q'
 transform(::ETSymMatrix, Q, b) = Q * b * Q'
 
+# proper rotations (det +1) and improper rotations / reflections (det -1)
+rand_rotation()   = ET.O3.Q_from_angles(π * rand(3))
+rand_reflection() = rand_rotation() * SMatrix{3,3}(Diagonal(SA[-1.0, 1.0, 1.0]))
+
 @testset "ET-backend output transforms" begin
    nneig = 6
    Rs = [ @SVector(randn(3)) for _ in 1:nneig ]
    for prop in (ETInvariant(), ETVector(), ETMatrix(), ETSymMatrix())
-      tensor = build_tensor(prop)
-      out = ETOutput(prop)
-      for _ in 1:5
-         θ = π * rand(3); Q = ET.O3.Q_from_angles(θ)
+      tensor, out = build_tensor(prop)
+      # full O(3): both proper rotations and reflections
+      for Q in (rand_rotation(), rand_rotation(), rand_reflection(), rand_reflection())
          RsQ = [ Q * r for r in Rs ]
          B  = eval_blocks(tensor, out, Rs)
          BQ = eval_blocks(tensor, out, RsQ)
@@ -56,6 +63,6 @@ transform(::ETSymMatrix, Q, b) = Q * b * Q'
          B = eval_blocks(tensor, out, Rs)
          @test maximum(norm(b - b') for b in B) < 1e-10
       end
-      println("  $(typeof(prop)):  LL=$(output_LL(prop))  nbasis=$(length(eval_blocks(tensor, out, Rs)))")
+      println("  $(typeof(prop)):  LL=$(out.LL)  nbasis=$(length(eval_blocks(tensor, out, Rs)))")
    end
 end

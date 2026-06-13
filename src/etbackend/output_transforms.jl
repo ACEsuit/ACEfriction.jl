@@ -41,6 +41,26 @@ output_LL(::ETVector)    = (1,)
 output_LL(::ETMatrix)    = (0, 1, 2)
 output_LL(::ETSymMatrix) = (0, 2)
 
+# Required total-l parity of a basis function for an O(3)-equivariant block.
+# A many-body basis function with angular factors (l_1,…,l_k) picks up a sign
+# (-1)^Σl under spatial inversion (Yₗᵐ(-r̂) = (-1)ˡ Yₗᵐ(r̂)). Restricting mb_spec to
+# a single parity per property makes each Σ block transform as a definite-parity
+# object, so the friction tensor Γ = ΣΣᵀ is a true (even) rank-2 tensor:
+# Γ(Q·r) = Q·Γ(r)·Qᵀ for all Q ∈ O(3), reflections included.
+#   - scalar invariant : even (true scalar, no pseudoscalar)
+#   - vector           : odd  (polar vector ⇒ ΣΣᵀ even)
+#   - matrix/symmatrix : even (true tensor; the L=1 antisym part is an axial vector)
+required_parity(::ETInvariant) = :even
+required_parity(::ETVector)    = :odd
+required_parity(::ETMatrix)    = :even
+required_parity(::ETSymMatrix) = :even
+
+# Parity predicate for a single many-body basis function `bb` (a vector of (n,l)
+# factors). `parity === nothing` disables the filter (SO(3)-only selection).
+_parity_ok(bb, ::Nothing) = true
+_parity_ok(bb, p::Symbol) =
+      (p == :even) == iseven(sum(b.l for b in bb; init = 0))
+
 # property <-> string (for serialization recipes)
 _property_str(::ETInvariant) = "invariant"
 _property_str(::ETVector)    = "vector"
@@ -106,6 +126,11 @@ end
 
 function ETOutput(property::ETProperty)
    LL = output_LL(property)
+   return ETOutput(property, LL)
+end
+
+# build for an explicit (possibly reduced) LL — see `build_equivariant_tensor`.
+function ETOutput(property::ETProperty, LL::NTuple{N, Int}) where {N}
    cgs = _build_cgs(property, LL)
    return ETOutput(property, LL, cgs)
 end
@@ -113,6 +138,32 @@ end
 _build_cgs(::Union{ETMatrix, ETSymMatrix}, LL) =
       tuple((ET.O3.cgmatrix(1, 1, L) for L in LL)...)
 _build_cgs(::Union{ETInvariant, ETVector}, LL) = ()
+
+"""
+    build_equivariant_tensor(property, mb_spec, Rnl_spec, Ylm_spec) -> (tensor, out)
+
+Build the ET equivariant tensor for `property` over `mb_spec`, keeping only the L
+channels whose symmetrisation is non-empty. A channel can be empty after parity
+selection: e.g. the axial-vector L=1 part of a matrix (even parity) is unbuildable
+from 2-body real-harmonic products and needs correlation order ≥ 3. ET cannot
+represent an empty channel, so we drop it; `out` is matched to the tensor's actual
+LL. With no parity filter all channels in `output_LL(property)` are non-empty, so
+this reproduces the previous behaviour.
+"""
+function build_equivariant_tensor(property::ETProperty, mb_spec, Rnl_spec, Ylm_spec)
+   keep = Int[]
+   for L in output_LL(property)
+      symm, _ = ET.symmetrisation_matrix(L, mb_spec; prune = true, PI = true,
+                                         basis = real)
+      size(symm, 1) > 0 && push!(keep, L)
+   end
+   isempty(keep) && error("no non-empty O(3) channels for property " *
+                  "'$(_property_str(property))' — increase maxorder/maxdeg/maxl")
+   LL = tuple(keep...)
+   tensor = ET.sparse_equivariant_tensors(; LL = LL, mb_spec = mb_spec,
+                  Rnl_spec = Rnl_spec, Ylm_spec = Ylm_spec, basis = real)
+   return tensor, ETOutput(property, LL)
+end
 
 # scalar invariant: L=0 only, y is a scalar -> isotropic 3x3 block
 _to_block(::ETInvariant, ::Tuple{}, ::Int, il::Int, y) =

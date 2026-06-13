@@ -66,7 +66,8 @@ function generate_mb_spec(rbasis::SpeciesRadialBasis, maxl::Integer;
                           weight = Dict(:n => 1.0, :l => 1.0), p::Real = 1,
                           weight_cat::AbstractDict = Dict{Int,Float64}(),
                           minorder_dict::AbstractDict = Dict{Int,Int}(),
-                          maxorder_dict::AbstractDict = Dict{Int,Int}())
+                          maxorder_dict::AbstractDict = Dict{Int,Int}(),
+                          parity::Union{Symbol,Nothing} = nothing)
    wn, wl = _wn_wl(weight)
    wcat = _int_keyed(weight_cat)
    mnd = _int_keyed(minorder_dict); mxd = _int_keyed(maxorder_dict)
@@ -88,7 +89,8 @@ function generate_mb_spec(rbasis::SpeciesRadialBasis, maxl::Integer;
                   if fdeg((n = ñ, l = l)) <= maxdeg ]
    spec = Vector{_NL}[]
    for k in 1:maxorder, bb in _wr_combinations(factors, k)
-      (level(bb) <= maxdeg && ok_orders(bb)) && push!(spec, sort(bb))
+      (level(bb) <= maxdeg && ok_orders(bb) && _parity_ok(bb, parity)) &&
+            push!(spec, sort(bb))
    end
    return unique(spec)
 end
@@ -145,25 +147,26 @@ function onsite_basis(property::ETProperty, species;
                       species_weight_cat::AbstractDict = Dict{Int,Float64}(),
                       species_minorder_dict::AbstractDict = Dict{Int,Int}(),
                       species_maxorder_dict::AbstractDict = Dict{Int,Int}(),
+                      o3symmetry::Bool = true,
                       radial_kwargs...)
    rbasis = RnYlm_radial(species; rcut = rcut, maxn = Int(floor(maxdeg)),
                          radial_kwargs...)
    ybasis = P4ML.real_sphericalharmonics(maxl)
    Ylm_spec = P4ML.natural_indices(ybasis)
+   parity = o3symmetry ? required_parity(property) : nothing
    mb_spec = generate_mb_spec(rbasis, maxl; maxorder = maxorder, maxdeg = maxdeg,
                   weight = weight, p = p_sel, weight_cat = species_weight_cat,
                   minorder_dict = species_minorder_dict,
-                  maxorder_dict = species_maxorder_dict)
-   tensor = ET.sparse_equivariant_tensors(;
-            LL = output_LL(property), mb_spec = mb_spec,
-            Rnl_spec = radial_spec(rbasis), Ylm_spec = Ylm_spec, basis = real)
-   out = ETOutput(property)
+                  maxorder_dict = species_maxorder_dict, parity = parity)
+   tensor, out = build_equivariant_tensor(property, mb_spec,
+                                          radial_spec(rbasis), Ylm_spec)
    recipe = Dict{String, Any}(
       "kind" => "onsite",
       "property" => _property_str(property),
       "species" => [ _atomic_number(s) for s in species ],
       "rcut" => Float64(rcut), "maxorder" => Int(maxorder),
       "maxdeg" => Float64(maxdeg), "maxl" => Int(maxl),
+      "o3symmetry" => o3symmetry,
       "selection" => _selection_recipe(weight, p_sel, species_weight_cat,
                                        species_minorder_dict, species_maxorder_dict),
       "radial" => Dict{String, Any}(string(k) => v for (k, v) in radial_kwargs))

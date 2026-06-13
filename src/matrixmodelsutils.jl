@@ -26,13 +26,14 @@ function OnsiteOnlyMatrixModel(property, species_friction, species_env;
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[])
+        species_substrat=[], o3symmetry=true)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut, maxorder=maxorder, maxdeg=maxdeg, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight,
         species_minorder_dict=species_minorder_dict,
         species_maxorder_dict=species_maxorder_dict,
-        species_weight_cat=species_weight_cat, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     onsitemodels = Dict(_atomic_number(z) => OnSiteModel(onsitebasis, SphericalCutoff(rcut), n_rep)
                         for z in species_friction)
     id = (id === nothing ? _o3id(property) : id)
@@ -53,14 +54,15 @@ function PWCMatrixModel(property, species_friction, species_env;
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[])
+        species_substrat=[], o3symmetry=true)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
         weight=weight, bond_weight=bond_weight,
         species_minorder_dict=species_minorder_dict,
         species_maxorder_dict=species_maxorder_dict,
-        species_weight_cat=species_weight_cat, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     cutoff = SphericalCutoff(rcut)
     offsitemodels = _offsite_dict(bb, cutoff, species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
@@ -80,14 +82,15 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::Ellipso
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[])
+        species_substrat=[], o3symmetry=true)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
         weight=weight, bond_weight=bond_weight,
         species_minorder_dict=species_minorder_dict,
         species_maxorder_dict=species_maxorder_dict,
-        species_weight_cat=species_weight_cat, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     offsitemodels = _offsite_dict(bb, cutoff, species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
     return PWCMatrixModel(offsitemodels, id, speciescoupling)
@@ -109,14 +112,15 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::SnowMan
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[])
+        species_substrat=[], o3symmetry=true)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
         weight=weight, bond_weight=bond_weight,
         species_minorder_dict=species_minorder_dict,
         species_maxorder_dict=species_maxorder_dict,
-        species_weight_cat=species_weight_cat, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     offsitemodels = _offsite_dict(bb, cutoff, species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
     return PWCMatrixModel(offsitemodels, id, speciescoupling)
@@ -151,20 +155,22 @@ function CWCMatrixModel(property, species_friction, species_env;
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[])
+        species_substrat=[], o3symmetry=true)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut, maxorder=maxorder, maxdeg=maxdeg, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight,
         species_minorder_dict=species_minorder_dict,
         species_maxorder_dict=species_maxorder_dict,
-        species_weight_cat=species_weight_cat, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=NoZ2Sym(), rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
         weight=weight, bond_weight=bond_weight,
         species_minorder_dict=species_minorder_dict,
         species_maxorder_dict=species_maxorder_dict,
-        species_weight_cat=species_weight_cat, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     onsitemodels = Dict(_atomic_number(z) => OnSiteModel(onsitebasis, SphericalCutoff(rcut), n_rep)
                         for z in species_friction)
     offsitemodels = _offsite_dict(bb, SphericalCutoff(rcut), species_friction, n_rep, speciescoupling)
@@ -188,20 +194,23 @@ function CWCMatrixModel(property, species_friction, species_env, evalcenter::Eva
         species_minorder_dict_on=Dict{Any,Float64}(), species_maxorder_dict_on=Dict{Any,Float64}(),
         species_weight_cat_on=Dict(c => 1.0 for c in species_env),
         species_minorder_dict_off=Dict{Any,Float64}(), species_maxorder_dict_off=Dict{Any,Float64}(),
-        species_weight_cat_off=Dict(c => 1.0 for c in species_env), kwargs...)
+        species_weight_cat_off=Dict(c => 1.0 for c in species_env),
+        o3symmetry=true, kwargs...)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut_on, maxorder=maxorder_on, maxdeg=maxdeg_on, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight_on,
         species_minorder_dict=species_minorder_dict_on,
         species_maxorder_dict=species_maxorder_dict_on,
-        species_weight_cat=species_weight_cat_on, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat_on, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=NoZ2Sym(), rcut=1.0, maxorder=maxorder_off, maxdeg=maxdeg_off,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
         weight=weight_off, bond_weight=bond_weight,
         species_minorder_dict=species_minorder_dict_off,
         species_maxorder_dict=species_maxorder_dict_off,
-        species_weight_cat=species_weight_cat_off, species_substrat=species_substrat)
+        species_weight_cat=species_weight_cat_off, species_substrat=species_substrat,
+        o3symmetry=o3symmetry)
     onsitemodels = Dict(_atomic_number(z) => OnSiteModel(onsitebasis, SphericalCutoff(rcut_on), n_rep)
                         for z in species_friction)
     offsitemodels = _offsite_dict(bb, SphericalCutoff(rcut_off), species_friction, n_rep, speciescoupling)

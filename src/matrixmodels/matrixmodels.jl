@@ -303,14 +303,15 @@ function onsite_linbasis(property::ETProperty, species;
             species_minorder_dict = Dict{Any, Float64}(),
             species_maxorder_dict = Dict{Any, Float64}(),
             species_weight_cat = Dict(c => 1.0 for c in species),
-            species_substrat = [], kwargs...)
+            species_substrat = [], o3symmetry = true, kwargs...)
    return onsite_basis(property, species;
             rcut = rcut, maxorder = maxorder, maxdeg = maxdeg, maxl = maxl,
             r0_ratio = r0_ratio, rin_ratio = rin_ratio, pcut = pcut, pin = pin,
             weight = weight, p_sel = p_sel,
             species_weight_cat = species_weight_cat,
             species_minorder_dict = species_minorder_dict,
-            species_maxorder_dict = species_maxorder_dict)
+            species_maxorder_dict = species_maxorder_dict,
+            o3symmetry = o3symmetry)
 end
 
 function offsite_linbasis(property::ETProperty, species;
@@ -321,14 +322,15 @@ function offsite_linbasis(property::ETProperty, species;
             species_minorder_dict = Dict{Any, Float64}(),
             species_maxorder_dict = Dict{Any, Float64}(),
             species_weight_cat = Dict(c => 1.0 for c in species),
-            species_substrat = [], isym = :mube, kwargs...)
+            species_substrat = [], isym = :mube, o3symmetry = true, kwargs...)
    b = bond_basis(property, species;
             z2sym = _z2flag(z2symmetry), rcut = rcut, maxorder = maxorder,
             maxdeg = maxdeg, maxl = maxl, r0_ratio = r0_ratio, rin_ratio = rin_ratio,
             pcut = pcut, pin = pin, weight = weight, p_sel = p_sel,
             bond_weight = bond_weight, species_weight_cat = species_weight_cat,
             species_minorder_dict = species_minorder_dict,
-            species_maxorder_dict = species_maxorder_dict)
+            species_maxorder_dict = species_maxorder_dict,
+            o3symmetry = o3symmetry)
    return BondBasis(b, z2symmetry)
 end
 

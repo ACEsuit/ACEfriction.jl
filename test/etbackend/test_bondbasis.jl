@@ -13,6 +13,16 @@ species = [:Cu, :H]; zCu, zH = 29, 1
 # matrix-property transform law
 matT(Q, b) = Q * b * Q'
 
+rand_reflection() =
+      ET.O3.Q_from_angles(π * rand(3)) * SMatrix{3,3}(Diagonal(SA[-1.0, 1.0, 1.0]))
+
+# max equivariance error under Q, transforming bond + env together
+function bond_equiv_err(basis, rrij, Rs_env, Zs_env, Q)
+   B  = ETBackend.evaluate_bond(basis, rrij, Rs_env, Zs_env)
+   BQ = ETBackend.evaluate_bond(basis, Q*rrij, [Q*r for r in Rs_env], Zs_env)
+   return maximum(norm(BQ[k] - matT(Q, B[k])) for k in eachindex(B))
+end
+
 @testset "bond_basis (native Z2)" begin
    Nenv = 5
    Rs_env = [ 0.6 * (r = @SVector(randn(3)); r/norm(r)) * rand() for _ in 1:Nenv ]
@@ -25,12 +35,14 @@ matT(Q, b) = Q * b * Q'
       B = ETBackend.evaluate_bond(basis, rrij, Rs_env, Zs_env)
       @test length(B) == length(basis) > 0
 
-      # O(3) equivariance (rotate bond + env together)
+      # SO(3) equivariance (rotate bond + env together)
       for _ in 1:3
-         θ = π*rand(3); Q = ET.O3.Q_from_angles(θ)
-         BQ = ETBackend.evaluate_bond(basis, Q*rrij, [Q*r for r in Rs_env], Zs_env)
-         err = maximum(norm(BQ[k] - matT(Q, B[k])) for k in eachindex(B))
-         @test err < 1e-9
+         @test bond_equiv_err(basis, rrij, Rs_env, Zs_env,
+                              ET.O3.Q_from_angles(π*rand(3))) < 1e-9
+      end
+      # O(3): default basis (o3symmetry=true) is equivariant under reflections too
+      for _ in 1:3
+         @test bond_equiv_err(basis, rrij, Rs_env, Zs_env, rand_reflection()) < 1e-9
       end
 
       # Z2 under bond inversion (env fixed): even unchanged, odd negated
@@ -42,6 +54,15 @@ matT(Q, b) = Q * b * Q'
 
       println("  z2sym=$z2:  nbasis=$(length(basis))")
    end
+
+   # Regression lock: o3symmetry=false is SO(3)-only ⇒ reflections must break it.
+   basis_so3 = ETBackend.bond_basis(ETBackend.ETMatrix(), species;
+                  z2sym = :none, rcut = 1.0, maxorder = 3, maxdeg = 5, maxl = 2,
+                  o3symmetry = false)
+   @test bond_equiv_err(basis_so3, rrij, Rs_env, Zs_env,
+                        ET.O3.Q_from_angles(π*rand(3))) < 1e-9
+   @test maximum(bond_equiv_err(basis_so3, rrij, Rs_env, Zs_env, rand_reflection())
+                 for _ in 1:5) > 1e-6
 
    # even ⊕ odd should partition the no-symmetry basis count
    nnone = length(ETBackend.bond_basis(ETBackend.ETMatrix(), species; z2sym=:none,

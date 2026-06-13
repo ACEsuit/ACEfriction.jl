@@ -41,7 +41,8 @@ function generate_bond_mb_spec(rbasis::SpeciesRadialBasis, maxl::Integer;
                                species_weight_cat::AbstractDict = Dict{Int,Float64}(),
                                species_minorder_dict::AbstractDict = Dict{Int,Int}(),
                                species_maxorder_dict::AbstractDict = Dict{Int,Int}(),
-                               z2sym::Symbol = :none)
+                               z2sym::Symbol = :none,
+                               parity::Union{Symbol,Nothing} = nothing)
    wn, wl = _wn_wl(weight)
    wcat = _int_keyed(species_weight_cat); wcat[BOND_Z] = Float64(bond_weight)
    mnd = _int_keyed(species_minorder_dict); mxd = _int_keyed(species_maxorder_dict)
@@ -79,7 +80,10 @@ function generate_bond_mb_spec(rbasis::SpeciesRadialBasis, maxl::Integer;
    for bf in bondfac, k in 0:(maxorder - 1)
       for envc in _wr_combinations(envfac, k)
          bb = vcat([bf], envc)
-         (level(bb) <= maxdeg && ok_env_orders(envc)) && push!(spec, sort(bb))
+         # z2sym filters the bond factor's l (bond-reversal); `parity` filters the
+         # total Σl over bond+env (spatial inversion / O(3)). The two compose.
+         (level(bb) <= maxdeg && ok_env_orders(envc) && _parity_ok(bb, parity)) &&
+               push!(spec, sort(bb))
       end
    end
    return unique(spec)
@@ -103,22 +107,23 @@ function bond_basis(property::ETProperty, species;
                     species_weight_cat::AbstractDict = Dict{Int,Float64}(),
                     species_minorder_dict::AbstractDict = Dict{Int,Int}(),
                     species_maxorder_dict::AbstractDict = Dict{Int,Int}(),
+                    o3symmetry::Bool = true,
                     radial_kwargs...)
    zlist = [BOND_Z; [_atomic_number(s) for s in species]...]   # bond channel first
    rbasis = RnYlm_radial(zlist; rcut = rcut, maxn = Int(floor(maxdeg)),
                          radial_kwargs...)
    ybasis = P4ML.real_sphericalharmonics(maxl)
    Ylm_spec = P4ML.natural_indices(ybasis)
+   parity = o3symmetry ? required_parity(property) : nothing
    mb_spec = generate_bond_mb_spec(rbasis, maxl; maxorder = maxorder,
                   maxdeg = maxdeg, weight = weight, p = p_sel,
                   bond_weight = bond_weight, species_weight_cat = species_weight_cat,
                   species_minorder_dict = species_minorder_dict,
-                  species_maxorder_dict = species_maxorder_dict, z2sym = z2sym)
+                  species_maxorder_dict = species_maxorder_dict, z2sym = z2sym,
+                  parity = parity)
    isempty(mb_spec) && error("empty bond mb_spec (check maxdeg/maxorder/z2sym)")
-   tensor = ET.sparse_equivariant_tensors(;
-            LL = output_LL(property), mb_spec = mb_spec,
-            Rnl_spec = radial_spec(rbasis), Ylm_spec = Ylm_spec, basis = real)
-   out = ETOutput(property)
+   tensor, out = build_equivariant_tensor(property, mb_spec,
+                                          radial_spec(rbasis), Ylm_spec)
    sel = _selection_recipe(weight, p_sel, species_weight_cat,
                            species_minorder_dict, species_maxorder_dict)
    sel["bond_weight"] = Float64(bond_weight)
@@ -129,6 +134,7 @@ function bond_basis(property::ETProperty, species;
       "z2sym" => String(z2sym),
       "rcut" => Float64(rcut), "maxorder" => Int(maxorder),
       "maxdeg" => Float64(maxdeg), "maxl" => Int(maxl),
+      "o3symmetry" => o3symmetry,
       "selection" => sel,
       "radial" => Dict{String, Any}(string(k) => v for (k, v) in radial_kwargs))
    meta = Dict{String, Any}("recipe" => recipe)

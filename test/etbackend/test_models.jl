@@ -50,14 +50,18 @@ species = [:Cu, :H]; zCu, zH = 29, 1
       @test err < 1e-9
    end
 
-   # onsite friction block Γ_ii = Σ_r Σ[r] Σ[r]' is symmetric PSD and equivariant
+   # onsite friction block Γ_ii = Σ_r Σ[r] Σ[r]' is symmetric PSD and O(3)-equivariant:
+   # Γ(Q·r) = Q Γ(r) Qᵀ must hold for proper rotations AND reflections (det Q = -1).
    Γ = sum(Σ[r] * Σ[r]' for r in 1:nrep)
    @test norm(Γ - Γ') < 1e-10
    @test minimum(eigvals(Symmetric(Matrix(Γ)))) > -1e-10
-   θ = π*rand(3); Q = ET.O3.Q_from_angles(θ)
-   ΣQ = ETBackend.evaluate(m, [Q*r for r in Rs], Zs)
-   ΓQ = sum(ΣQ[r] * ΣQ[r]' for r in 1:nrep)
-   @test norm(ΓQ - Q*Γ*Q') < 1e-9
+   reflection() = ET.O3.Q_from_angles(π*rand(3)) * SMatrix{3,3}(Diagonal(SA[-1.0,1,1]))
+   for Q in (ET.O3.Q_from_angles(π*rand(3)), reflection(), reflection())
+      ΣQ = ETBackend.evaluate(m, [Q*r for r in Rs], Zs)
+      @test maximum(norm(ΣQ[r] - Q*Σ[r]*Q') for r in 1:nrep) < 1e-9
+      ΓQ = sum(ΣQ[r] * ΣQ[r]' for r in 1:nrep)
+      @test norm(ΓQ - Q*Γ*Q') < 1e-9
+   end
 
    println("  nbasis=$(length(basis))  n_rep=$nrep  Γ eigvals=$(round.(eigvals(Symmetric(Matrix(Γ))), sigdigits=3))")
 end
