@@ -85,17 +85,27 @@ end
 """
     randf(fm::FrictionModel{MODEL_IDS}, Σ::NamedTuple{MODEL_IDS}) where {MODEL_IDS}
 
-Generates a ``{\\rm Normal}({\\bm 0}, {\\bm \\Gamma})``-distributed Gaussian pseudo random number from a precomputed diffusion coeffiient matrices.
+Draws a ``{\\rm Normal}({\\bm 0}, {\\bm \\Gamma})``-distributed Gaussian random force from a
+precomputed collection of diffusion coefficient matrices `Σ = Sigma(fm, at)`. The sample
+covariance of the returned force equals the friction tensor ``{\\bm \\Gamma} = `` [`Gamma`](@ref)`(fm, Σ)`
+(the fluctuation–dissipation relation); this holds for every coupling scheme, even where
+``{\\bm \\Gamma} \\neq {\\bm \\Sigma}{\\bm \\Sigma}^{T}`` (e.g. the pair-wise coupling).
+
+This is the cheap, per-step entry point for Langevin/GLE-type dynamics: assemble `Σ` once
+with [`Sigma`](@ref), then call `randf` each timestep to obtain the stochastic force.
 
 ### Arguments:
-- `fm` -- the friction model of which the friction tensor is evaluated. The friction tensor is the sum of the friction tensors of all matrix models in `fm.matrixmodels`.
-- `Σ` -- a collection of diffusion coefficient matrices. The friction tensor is the sum of the squares of all matrices in `Σ`.
+- `fm` -- the friction model; the total force is the sum over its matrix models.
+- `Σ` -- a `NamedTuple` of per-model diffusion coefficient matrices (each a vector of
+  per-replica matrices), as returned by [`Sigma`](@ref)`(fm, at)`.
 
 ### Output:
 
-A ``{\\rm Normal}({\\bm 0}, {\\bm \\Gamma})``-distributed Gaussian vector `R::Vector{3,Float64}` of length N, where N is the number of atoms in the configuration for which `Σ` was evaluated.
+A `Vector{SVector{3,Float64}}` of length `N` (one 3-vector per atom), where `N` is the
+number of atoms in the configuration for which `Σ` was evaluated. Each matrix model draws
+its own independent noise (summed over replicas), and the model forces are summed.
 """
-function randf(fm::FrictionModel{MODEL_IDS}, Σ::NamedTuple{MODEL_IDS}) where {MODEL_IDS} 
+function randf(fm::FrictionModel{MODEL_IDS}, Σ::NamedTuple{MODEL_IDS}) where {MODEL_IDS}
     return sum(ACEfriction.MatrixModels.randf(mo,sΣ) for (mo,sΣ) in zip(values(fm.matrixmodels),Σ))
 end
 
@@ -202,7 +212,7 @@ function _square(Σ::SparseMatrixCSC{Tv,Ti}, ::PWCMatrixModel) where {Tv, Ti}
     sizehint!(V, nvals)
     #k = 1 
     for (i,j,σij) in zip(Is, Js, Vs)
-        if i <= j
+        if i < j
             σji = Σ[j,i]
             push!(I, i)
             push!(J,j)
@@ -219,6 +229,12 @@ function _square(Σ::SparseMatrixCSC{Tv,Ti}, ::PWCMatrixModel) where {Tv, Ti}
             push!(I, j)
             push!(J, j)
             push!(V, σji* σji')
+        elseif i == j
+            # Diagonal (periodic self-image) entry: contributes 1·Σ_ii Σ_iiᵀ once, like
+            # the generic ΣΣᵀ. Only present under IncludeSelfImages.
+            push!(I, i)
+            push!(J, i)
+            push!(V, σij * σij')
         end
     end
     A = sparse(I, J, V, Σ.m, Σ.n)

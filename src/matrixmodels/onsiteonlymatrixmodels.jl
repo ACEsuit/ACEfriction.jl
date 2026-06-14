@@ -3,9 +3,11 @@ struct OnsiteOnlyMatrixModel{O3S} <: MatrixModel{O3S}
     n_rep::Int
     inds::SiteInds
     id::Symbol
-    function OnsiteOnlyMatrixModel(onsite::OnSiteModels{O3S}, id::Symbol) where {O3S}
+    self_images::SelfImagePolicy   # no-op for this model (no bond partners); kept for API uniformity
+    function OnsiteOnlyMatrixModel(onsite::OnSiteModels{O3S}, id::Symbol,
+                                   self_images::SelfImagePolicy=ExcludeSelfImages()) where {O3S}
         @assert length(unique([_n_rep(mo) for mo in values(onsite)])) == 1
-        return new{O3S}(onsite, _n_rep(onsite), SiteInds(_get_basisinds(onsite)), id)
+        return new{O3S}(onsite, _n_rep(onsite), SiteInds(_get_basisinds(onsite)), id, self_images)
     end
 end
 
@@ -65,7 +67,8 @@ read_dict(::Val{:ACEfriction_onsitemodels}, D::AbstractDict) =
 
 function write_dict(M::OnsiteOnlyMatrixModel)
     return Dict("__id__" => "ACEfriction_OnsiteOnlyMatrixModel",
-                "onsite" => write_dict(M.onsite), "id" => string(M.id))
+                "onsite" => write_dict(M.onsite), "id" => string(M.id),
+                "self_images" => _self_image_name(M.self_images))
 end
 read_dict(::Val{:ACEfriction_OnsiteOnlyMatrixModel}, D::AbstractDict) =
-        OnsiteOnlyMatrixModel(read_dict(D["onsite"]), Symbol(D["id"]))
+        OnsiteOnlyMatrixModel(read_dict(D["onsite"]), Symbol(D["id"]), _self_image_from_dict(D))

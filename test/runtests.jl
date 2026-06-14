@@ -18,6 +18,9 @@ end
     # I/O data round-trip
     @testset "I/O data" begin _run_test("test_IO_data.jl") end
 
+    # randf: empirical covariance of the random force matches the friction tensor Γ
+    @testset "randf covariance" begin _run_test("test_randn.jl") end
+
     # model-fit tests on real data (build -> save/load -> Flux fit to tolerance)
     @testset "CWC model fit" begin _run_test("test_ac_model_fit.jl") end
     @testset "PWC fit (spherical cutoff)" begin _run_test("test_pwcsc_model_fit.jl") end

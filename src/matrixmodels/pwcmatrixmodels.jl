@@ -3,9 +3,11 @@ struct PWCMatrixModel{O3S, CUTOFF, Z2S, SC} <: MatrixModel{O3S}
     n_rep::Int
     inds::SiteInds
     id::Symbol
-    function PWCMatrixModel(offsite::OffSiteModels{O3S, Z2S, CUTOFF}, id::Symbol, sc::SC) where {O3S, Z2S, CUTOFF, SC}
+    self_images::SelfImagePolicy
+    function PWCMatrixModel(offsite::OffSiteModels{O3S, Z2S, CUTOFF}, id::Symbol, sc::SC,
+                            self_images::SelfImagePolicy=ExcludeSelfImages()) where {O3S, Z2S, CUTOFF, SC}
         @assert length(unique([_n_rep(mo) for mo in values(offsite)])) == 1
-        return new{O3S, CUTOFF, Z2S, SC}(offsite, _n_rep(offsite), SiteInds(_get_basisinds(offsite)), id)
+        return new{O3S, CUTOFF, Z2S, SC}(offsite, _n_rep(offsite), SiteInds(_get_basisinds(offsite)), id, self_images)
     end
 end
 
@@ -19,7 +21,7 @@ function matrix(M::PWCMatrixModel{O3S, <:EllipsoidCutoff, Z2S, SC}, at::Abstract
     Is = [Int[] for _=1:M.n_rep]; Js = [Int[] for _=1:M.n_rep]
     Vs = [_block_type(M,T)[] for _=1:M.n_rep]
     for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(M.offsite))
-        (filter(i, at) && filter(j, at)) || continue
+        (filter(i, at) && filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
         (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
         Σij = evaluate(M.offsite[(Zi, Zj)], rrij, Rs, Zs)
         for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
@@ -37,7 +39,7 @@ function matrix(M::PWCMatrixModel{O3S, <:SphericalCutoff, Z2S, SC}, at::Abstract
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
         for (j_loc, j) in enumerate(neigs)
-            filter(j, at) || continue
+            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
             (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
             Σij = evaluate(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
             for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
@@ -99,7 +101,9 @@ function _foreach_snowman_pair(f, M::PWCMatrixModel{O3S, <:SnowManCutoff, Z2S, S
         (haskey(nb, i) && filter(i, at)) || continue
         (neigs_i, Rs_i) = nb[i]
         for (j_loc, j) in enumerate(neigs_i)
-            filter(j, at) || continue
+            # filter before the reverse-bond lookup: also skips self-image bonds (j==i)
+            # under ExcludeSelfImages, which have no well-defined reverse end.
+            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
             (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
             om = M.offsite[(Zi, Zj)]
             Bij = getB(i, j_loc, om)                                   # sphere at i, bond i→j
@@ -132,7 +136,7 @@ function basis(M::PWCMatrixModel{O3S, <:EllipsoidCutoff, Z2S, SC}, at::AbstractS
     N = length(at); Z = _species(at); K = length(M.inds, :offsite)
     Is = [Int[] for _=1:K]; Js = [Int[] for _=1:K]; Vs = [_block_type(M,T)[] for _=1:K]
     for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(M.offsite))
-        (filter(i, at) && filter(j, at)) || continue
+        (filter(i, at) && filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
         (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
         Bij = evaluate_basis(M.offsite[(Zi, Zj)], rrij, Rs, Zs)
         for (k, b) in zip(get_range(M, (Zi, Zj)), Bij); push!(Is[k], i); push!(Js[k], j); push!(Vs[k], b); end
@@ -150,7 +154,7 @@ function basis(M::PWCMatrixModel{O3S, <:SphericalCutoff, Z2S, SC}, at::AbstractS
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
         for (j_loc, j) in enumerate(neigs)
-            filter(j, at) || continue
+            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
             (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
             Bij = evaluate_basis(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
             for (k, b) in zip(get_range(M, (Zi, Zj)), Bij); push!(Is[k], i); push!(Js[k], j); push!(Vs[k], b); end
@@ -174,18 +178,48 @@ function basis(M::PWCMatrixModel{O3S, <:SnowManCutoff, Z2S, SC}, at::AbstractSys
     return (join_sites ? B : (offsite = B,))
 end
 
+# Pairwise random force. Each bond {i,j} carries one shared noise `w` and contributes
+# `Σ[i,j]·w` to atom i and `Σ[j,i]·w` to atom j. The resulting covariance is exactly
+# the pairwise friction tensor Γ = `_square(Σ, ::PWCMatrixModel)`: for a single bond
+# the (i,j) sub-block is `[Σ[i,j]; Σ[j,i]] [Σ[i,j]; Σ[j,i]]ᵀ`. A diagonal (periodic
+# self-image) entry — present only under IncludeSelfImages — draws its own noise and
+# contributes `Σ[i,i]·w`, giving 1·Σ[i,i]Σ[i,i]ᵀ, matching `_square`.
+#
+# Why an explicit loop (not a vectorized `vec(sum(Σ .* R, dims=2))` over a symmetrized
+# noise matrix `R = (sparse(I,J,Rnz) + sparse(J,I,Rnz))/√2`): that symmetrization doubles
+# diagonal entries (Rₙₙ added to itself → cov 2I), which would give 2·Σ_ii Σ_iiᵀ instead
+# of the required 1× under IncludeSelfImages. The loop is also ~2× faster (it avoids the
+# several temporary sparse matrices the vectorized form allocates per call).
 function randf(::PWCMatrixModel, Σ::SparseMatrixCSC{SMatrix{3,3,T,9}, TI}) where {T<:Real, TI<:Int}
-    I, J, _ = findnz(Σ); Rnz = randn(SVector{3,T}, length(J))
-    R = (sparse(I, J, Rnz) .+ sparse(J, I, Rnz)) ./ sqrt(2)
-    return vec(sum(Σ .* R, dims=1))
+    f = zeros(SVector{3,T}, size(Σ, 1))
+    Is, Js, Vs = findnz(Σ)
+    for (i, j, σij) in zip(Is, Js, Vs)
+        if i < j
+            w = randn(SVector{3,T})
+            f[i] += σij * w
+            f[j] += Σ[j,i] * w
+        elseif i == j
+            f[i] += σij * randn(SVector{3,T})
+        end
+    end
+    return f
 end
 
-# vector-equivariant (momentum-preserving) case: Σ blocks are SVector{3} and the
-# pairwise noise is scalar, symmetrised over the (i,j) pair.
+# vector-equivariant case: Σ blocks are SVector{3} and the per-bond noise is scalar
+# (the bond sub-block of Γ is the rank-1 `[Σ[i,j]; Σ[j,i]] [Σ[i,j]; Σ[j,i]]ᵀ`).
 function randf(::PWCMatrixModel, Σ::SparseMatrixCSC{SVector{3,T}, TI}) where {T<:Real, TI<:Int}
-    I, J, _ = findnz(Σ); Rnz = randn(T, length(J))
-    R = (sparse(I, J, Rnz) .+ sparse(J, I, Rnz)) ./ sqrt(2)
-    return vec(sum(Σ .* R, dims=1))
+    f = zeros(SVector{3,T}, size(Σ, 1))
+    Is, Js, Vs = findnz(Σ)
+    for (i, j, σij) in zip(Is, Js, Vs)
+        if i < j
+            w = randn(T)
+            f[i] += σij * w
+            f[j] += Σ[j,i] * w
+        elseif i == j
+            f[i] += σij * randn(T)
+        end
+    end
+    return f
 end
 
 # ---- serialization ----
@@ -216,9 +250,11 @@ read_dict(::Val{:ACEfriction_offsitemodels}, D::AbstractDict) =
 
 function write_dict(M::PWCMatrixModel{O3S, CUTOFF, Z2S, SC}) where {O3S, CUTOFF, Z2S, SC}
     return Dict("__id__" => "ACEfriction_PWCMatrixModel",
-                "offsite" => write_dict(M.offsite), "sc" => string(nameof(SC)), "id" => string(M.id))
+                "offsite" => write_dict(M.offsite), "sc" => string(nameof(SC)), "id" => string(M.id),
+                "self_images" => _self_image_name(M.self_images))
 end
 function read_dict(::Val{:ACEfriction_PWCMatrixModel}, D::AbstractDict)
     offsite = read_dict(D["offsite"]); sc = getfield(@__MODULE__, Symbol(D["sc"]))()
-    return PWCMatrixModel(offsite, Symbol(D["id"]), sc)
+    si = _self_image_from_dict(D)
+    return PWCMatrixModel(offsite, Symbol(D["id"]), sc, si)
 end

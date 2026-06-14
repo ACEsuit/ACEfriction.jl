@@ -74,6 +74,9 @@ How ${\bm \Gamma}$ is built from ${\bm \Sigma}$ depends on the coupling scheme â
 
 In both cases the resulting ${\bm \Gamma}$ is symmetric positive semi-definite, and the friction tensor of a multi-model friction model is the sum of the per-model contributions.
 
+!!! note "Periodic self-images"
+    On a cell small enough that an atom falls within its own cutoff, a periodic self-image would appear as a bond partner with atom index $j=i$, i.e. a diagonal ${\bm \Sigma}_{ii}$ entry. The constructor keyword `include_self_images` (default `false`) controls this: by default such bond partners are dropped, so `PWCMatrixModel` keeps ${\bm \Sigma}_{ii}={\bm 0}$ as defined above. Setting `include_self_images=true` retains them, and the diagonal then contributes ${\bm \Sigma}_{ii}{\bm \Sigma}_{ii}^{T}$ once (as in the generic ${\bm \Sigma}{\bm \Sigma}^{T}$). It is a no-op for `OnsiteOnlyMatrixModel` (no off-diagonal bonds).
+
 ## [Local environments (cutoffs)](@id cutoffs)
 
 The local environment entering each block is delimited by a cutoff:

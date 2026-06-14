@@ -9,12 +9,14 @@ struct CWCMatrixModel{O3S, Z2S, SC, EC} <: MatrixModel{O3S}
     inds::SiteInds
     id::Symbol
     evalcenter::EC
+    self_images::SelfImagePolicy
     function CWCMatrixModel(onsite::OnSiteModels{O3S}, offsite::OffSiteModels{O3S, Z2S, CUT},
-                            id::Symbol, evalcenter::EC=AtomCentered(), sc::SC=SpeciesUnCoupled()
+                            id::Symbol, evalcenter::EC=AtomCentered(), sc::SC=SpeciesUnCoupled(),
+                            self_images::SelfImagePolicy=ExcludeSelfImages()
                             ) where {O3S, Z2S, CUT, SC, EC}
         @assert _n_rep(onsite) == _n_rep(offsite)
         inds = SiteInds(_get_basisinds(onsite), _get_basisinds(offsite))
-        return new{O3S, Z2S, SC, EC}(onsite, offsite, _n_rep(onsite), inds, id, evalcenter)
+        return new{O3S, Z2S, SC, EC}(onsite, offsite, _n_rep(onsite), inds, id, evalcenter, self_images)
     end
 end
 
@@ -33,7 +35,7 @@ function matrix(M::CWCMatrixModel{O3S, Z2S, SC}, at::AbstractSystem;
             for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], i); push!(Vs[r], Σi[r]); end
         end
         for (j_loc, j) in enumerate(neigs)
-            filter(j, at) || continue
+            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
             (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
             Σij = evaluate(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
             for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
@@ -56,7 +58,7 @@ function basis(M::CWCMatrixModel{O3S, Z2S, SC}, at::AbstractSystem;
             for (k, b) in zip(get_range(M, Z[i]), Bi); push!(Ion[k], i); push!(Jon[k], i); push!(Von[k], b); end
         end
         for (j_loc, j) in enumerate(neigs)
-            filter(j, at) || continue
+            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
             (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
             Bij = evaluate_basis(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
             for (k, b) in zip(get_range(M, (Zi, Zj)), Bij); push!(Iof[k], i); push!(Jof[k], j); push!(Vof[k], b); end
@@ -71,18 +73,25 @@ function randf(::CWCMatrixModel, Σ::SparseMatrixCSC{SMatrix{3,3,T,9}, TI}) wher
     return Σ * randn(SVector{3,T}, size(Σ, 2))
 end
 
+# vector-equivariant (momentum-preserving) case: Σ blocks are SVector{3} and the
+# per-column noise is scalar.
+function randf(::CWCMatrixModel, Σ::SparseMatrixCSC{SVector{3,T}, TI}) where {T<:Real, TI<:Int}
+    return Σ * randn(T, size(Σ, 2))
+end
+
 # ---- serialization ----
 function write_dict(M::CWCMatrixModel{O3S, Z2S, SC, EC}) where {O3S, Z2S, SC, EC}
     return Dict("__id__" => "ACEfriction_CWCMatrixModel",
                 "onsite" => write_dict(M.onsite), "offsite" => write_dict(M.offsite),
                 "sc" => string(nameof(SC)), "evalcenter" => string(nameof(EC)),
-                "id" => string(M.id))
+                "id" => string(M.id), "self_images" => _self_image_name(M.self_images))
 end
 function read_dict(::Val{:ACEfriction_CWCMatrixModel}, D::AbstractDict)
     onsite = read_dict(D["onsite"]); offsite = read_dict(D["offsite"])
     sc = getfield(@__MODULE__, Symbol(D["sc"]))()
     ec = getfield(@__MODULE__, Symbol(D["evalcenter"]))()
-    return CWCMatrixModel(onsite, offsite, Symbol(D["id"]), ec, sc)
+    si = _self_image_from_dict(D)
+    return CWCMatrixModel(onsite, offsite, Symbol(D["id"]), ec, sc, si)
 end
 # Backward compatibility: models serialized under the former name `RWCMatrixModel`
 # still load (into the renamed `CWCMatrixModel`).

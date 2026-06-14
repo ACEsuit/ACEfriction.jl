@@ -13,6 +13,9 @@ export CWCMatrixModel, RWCMatrixModel, PWCMatrixModel, OnsiteOnlyMatrixModel
 
 _o3id(property) = _default_id(_o3sym(property))
 
+# translate the user-facing `include_self_images::Bool` kwarg to the trait policy
+_self_image_policy(include::Bool) = include ? IncludeSelfImages() : ExcludeSelfImages()
+
 """
     OnsiteOnlyMatrixModel(property, species_friction, species_env;
         maxorder=2, maxdeg=5, rcut=5.0, n_rep=1, ...)
@@ -26,7 +29,7 @@ function OnsiteOnlyMatrixModel(property, species_friction, species_env;
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[], o3symmetry=true)
+        species_substrat=[], o3symmetry=true, include_self_images=false)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut, maxorder=maxorder, maxdeg=maxdeg, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight,
@@ -37,7 +40,7 @@ function OnsiteOnlyMatrixModel(property, species_friction, species_env;
     onsitemodels = Dict(_atomic_number(z) => OnSiteModel(onsitebasis, SphericalCutoff(rcut), n_rep)
                         for z in species_friction)
     id = (id === nothing ? _o3id(property) : id)
-    return OnsiteOnlyMatrixModel(onsitemodels, id)
+    return OnsiteOnlyMatrixModel(onsitemodels, id, _self_image_policy(include_self_images))
 end
 
 """
@@ -54,7 +57,7 @@ function PWCMatrixModel(property, species_friction, species_env;
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[], o3symmetry=true)
+        species_substrat=[], o3symmetry=true, include_self_images=false)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
@@ -66,7 +69,7 @@ function PWCMatrixModel(property, species_friction, species_env;
     cutoff = SphericalCutoff(rcut)
     offsitemodels = _offsite_dict(bb, cutoff, species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
-    return PWCMatrixModel(offsitemodels, id, speciescoupling)
+    return PWCMatrixModel(offsitemodels, id, speciescoupling, _self_image_policy(include_self_images))
 end
 
 """
@@ -82,7 +85,7 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::Ellipso
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[], o3symmetry=true)
+        species_substrat=[], o3symmetry=true, include_self_images=false)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
@@ -93,7 +96,7 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::Ellipso
         o3symmetry=o3symmetry)
     offsitemodels = _offsite_dict(bb, cutoff, species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
-    return PWCMatrixModel(offsitemodels, id, speciescoupling)
+    return PWCMatrixModel(offsitemodels, id, speciescoupling, _self_image_policy(include_self_images))
 end
 
 """
@@ -112,7 +115,7 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::SnowMan
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[], o3symmetry=true)
+        species_substrat=[], o3symmetry=true, include_self_images=false)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
@@ -123,7 +126,7 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::SnowMan
         o3symmetry=o3symmetry)
     offsitemodels = _offsite_dict(bb, cutoff, species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
-    return PWCMatrixModel(offsitemodels, id, speciescoupling)
+    return PWCMatrixModel(offsitemodels, id, speciescoupling, _self_image_policy(include_self_images))
 end
 
 function _offsite_dict(bb, cutoff, species_friction, n_rep, sc::SpeciesUnCoupled)
@@ -155,7 +158,7 @@ function CWCMatrixModel(property, species_friction, species_env;
         species_minorder_dict=Dict{Any,Float64}(),
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
-        species_substrat=[], o3symmetry=true)
+        species_substrat=[], o3symmetry=true, include_self_images=false)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut, maxorder=maxorder, maxdeg=maxdeg, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight,
@@ -175,7 +178,7 @@ function CWCMatrixModel(property, species_friction, species_env;
                         for z in species_friction)
     offsitemodels = _offsite_dict(bb, SphericalCutoff(rcut), species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
-    return CWCMatrixModel(onsitemodels, offsitemodels, id, evalcenter, speciescoupling)
+    return CWCMatrixModel(onsitemodels, offsitemodels, id, evalcenter, speciescoupling, _self_image_policy(include_self_images))
 end
 
 """
@@ -195,7 +198,7 @@ function CWCMatrixModel(property, species_friction, species_env, evalcenter::Eva
         species_weight_cat_on=Dict(c => 1.0 for c in species_env),
         species_minorder_dict_off=Dict{Any,Float64}(), species_maxorder_dict_off=Dict{Any,Float64}(),
         species_weight_cat_off=Dict(c => 1.0 for c in species_env),
-        o3symmetry=true, kwargs...)
+        o3symmetry=true, include_self_images=false, kwargs...)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut_on, maxorder=maxorder_on, maxdeg=maxdeg_on, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight_on,
@@ -215,5 +218,5 @@ function CWCMatrixModel(property, species_friction, species_env, evalcenter::Eva
                         for z in species_friction)
     offsitemodels = _offsite_dict(bb, SphericalCutoff(rcut_off), species_friction, n_rep, speciescoupling)
     id = (id === nothing ? _o3id(property) : id)
-    return CWCMatrixModel(onsitemodels, offsitemodels, id, evalcenter, speciescoupling)
+    return CWCMatrixModel(onsitemodels, offsitemodels, id, evalcenter, speciescoupling, _self_image_policy(include_self_images))
 end

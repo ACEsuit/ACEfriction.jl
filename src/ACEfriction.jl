@@ -27,6 +27,9 @@ export FrictionData, FluxFrictionModel, flux_assemble
 import ACEfriction.MatrixModels: CWCMatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
 export CWCMatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
 
+import ACEfriction.MatrixModels: SelfImagePolicy, ExcludeSelfImages, IncludeSelfImages
+export SelfImagePolicy, ExcludeSelfImages, IncludeSelfImages
+
 import ACEfriction.DataUtils: write_dict, read_dict, load_h5fdata, save_h5fdata
 export write_dict, read_dict, load_h5fdata, save_h5fdata
 

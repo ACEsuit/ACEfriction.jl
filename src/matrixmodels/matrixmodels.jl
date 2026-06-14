@@ -26,6 +26,7 @@ export onsite_linbasis, offsite_linbasis, env_cutoff
 export O3Symmetry, Invariant, VectorEquivariant, MatrixEquivariant
 export Odd, Even, NoZ2Sym, SpeciesCoupled, SpeciesUnCoupled
 export NeighborCentered, AtomCentered
+export SelfImagePolicy, ExcludeSelfImages, IncludeSelfImages
 export matrix, basis, params, nparams, set_params!, set_zero!, get_id, randf
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,32 @@ struct SpeciesUnCoupled <: SpeciesCoupling end
 abstract type EvaluationCenter end
 struct NeighborCentered <: EvaluationCenter end
 struct AtomCentered <: EvaluationCenter end
+
+# Whether a periodic self-image of atom `i` (a neighbour whose atom index `j == i`)
+# is kept as a bond partner during Σ assembly. `ExcludeSelfImages` (the default)
+# drops such bonds so the off-diagonal-only models keep Σ_ii = 0; `IncludeSelfImages`
+# retains them (PWC then contributes 1·Σ_ii Σ_iiᵀ to Γ, like the generic Σ Σᵀ).
+abstract type SelfImagePolicy end
+struct ExcludeSelfImages <: SelfImagePolicy end
+struct IncludeSelfImages <: SelfImagePolicy end
+# bond-partner filter (the dispatch point); `i`/`j` are atom indices
+_keep_partner(::ExcludeSelfImages, i, j) = i != j
+_keep_partner(::IncludeSelfImages, i, j) = true
+# (de)serialization: name <-> singleton; missing/unknown name => ExcludeSelfImages (default)
+_self_image_name(p::SelfImagePolicy) = string(nameof(typeof(p)))
+_self_image_from_name(s::AbstractString) = (s == "IncludeSelfImages" ? IncludeSelfImages() : ExcludeSelfImages())
+
+# Read the self-image policy from a serialized model dict. Models serialized before this
+# option existed carry no "self_images" key; warn and default to ExcludeSelfImages.
+function _self_image_from_dict(D::AbstractDict)
+    haskey(D, "self_images") && return _self_image_from_name(D["self_images"])
+    @warn("Importing a matrix model serialized before the `include_self_images` option " *
+          "was introduced (no self-image information stored). Defaulting to " *
+          "ExcludeSelfImages: self-image bond partners are dropped, so PWC keeps Σ_ii = 0. " *
+          "If this model was fitted with self-images included, rebuild it with " *
+          "`include_self_images = true`.", model = get(D, "__id__", "?"))
+    return ExcludeSelfImages()
+end
 
 # JuLIP-free helpers (species as Int atomic numbers; neighbour iteration)
 _species(at::AbstractSystem) = Int[ Int(atomic_number(at, i)) for i in 1:length(at) ]
@@ -209,9 +236,16 @@ _block_type(::MatrixModel{MatrixEquivariant}, T = Float64) = SMatrix{3, 3, T, 9}
 _n_rep(M::MatrixModel) = M.n_rep
 get_id(M::MatrixModel) = M.id
 
-# `Sigma(M, at)` returns one (sparse / Diagonal) matrix per replica; the per-replica
-# `randf` methods (in the model files) draw an independent random force for each, and
-# the model's random force is their sum.
+"""
+    randf(M::MatrixModel, Σ_vec::AbstractVector)
+
+Random force of a single matrix model from its per-replica diffusion matrices
+`Σ_vec = Sigma(M, at)` (one sparse / `Diagonal` matrix per replica). Each replica draws an
+independent random force via the coupling-scheme-specific `randf(M, Σ)` method (defined in
+the model files), and the model's force is their sum. Its covariance equals the model's
+friction tensor `Gamma(M, Σ_vec)`. Usually called through [`randf(fm, Σ)`](@ref) rather
+than directly.
+"""
 randf(M::MatrixModel, Σ_vec::AbstractVector) = sum(randf(M, Σ) for Σ in Σ_vec)
 Base.length(m::MatrixModel, args...) = length(m.inds, args...)
 get_range(m::MatrixModel, args...) = get_range(m.inds, args...)
