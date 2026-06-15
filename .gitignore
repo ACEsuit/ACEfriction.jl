@@ -8,3 +8,5 @@ Manifest.toml
 .ipynb_checkpoints
 ./test/test-data-large.h5
 docs/build/
+/references/*
+/docs/fdt_consistency.md
