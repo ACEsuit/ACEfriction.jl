@@ -6,10 +6,10 @@ using ACEfriction.MatrixModels: RWCMatrixModel
 
 
 
- 
- 
 
- 
+
+
+
 
 
 
@@ -18,18 +18,18 @@ using ACEfriction.MatrixModels: RWCMatrixModel
 #     Dict("__id__" => "ACE_AntiSymmetricEuclideanMatrix",
 #           "valr" => write_dict(real.(Matrix(φ.val))),
 #           "vali" => write_dict(imag.(Matrix(φ.val))),
-#              "T" => write_dict(T))         
+#              "T" => write_dict(T))
 #  end
 
 
-#  function ACE.read_dict(::Val{:ACE_SymmetricEuclideanMatrix}, D::Dict)
+#  function ACE.read_dict(::Val{:ACE_SymmetricEuclideanMatrix}, D::AbstractDict)
 #     T = read_dict(D["T"])
 #     valr = SMatrix{3, 3, T, 9}(read_dict(D["valr"]))
 #     vali = SMatrix{3, 3, T, 9}(read_dict(D["vali"]))
 #     return SymmetricEuclideanMatrix{T}(valr + im * vali)
 #  end
- 
-#  function ACE.read_dict(::Val{:ACE_AntiSymmetricEuclideanMatrix}, D::Dict)
+
+#  function ACE.read_dict(::Val{:ACE_AntiSymmetricEuclideanMatrix}, D::AbstractDict)
 #     T = read_dict(D["T"])
 #     valr = SMatrix{3, 3, T, 9}(read_dict(D["valr"]))
 #     vali = SMatrix{3, 3, T, 9}(read_dict(D["vali"]))
