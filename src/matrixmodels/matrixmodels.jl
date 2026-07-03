@@ -264,8 +264,8 @@ env_cutoff(models::SiteModels) = maximum(env_cutoff(mo.cutoff) for mo in values(
 
 
 # struct PWCoupledMatrixModel{O3S,TM,SPSYM,Z2S,CUTOFF}
-#     onsite::Dict{AtomicNumber,OnSiteModel{O3S,TM}}
-#     offsite::Dict{Tuple{AtomicNumber,AtomicNumber},OffSiteModel{O3S,TM,SPSYM,Z2S,CUTOFF}}
+#     onsite::AbstractDict{AtomicNumber,OnSiteModel{O3S,TM}}
+#     offsite::AbstractDict{Tuple{AtomicNumber,AtomicNumber},OffSiteModel{O3S,TM,SPSYM,Z2S,CUTOFF}}
 #     n_rep::Int
 #     inds::SiteInds
 #     id::Symbol
@@ -274,7 +274,7 @@ env_cutoff(models::SiteModels) = maximum(env_cutoff(mo.cutoff) for mo in values(
 
 
 
-# function OffSiteModels(models::Dict{Tuple{AtomicNumber,AtomicNumber}, TM}, env::CUTOFF, ::SPSYM, ::Z2S) where {TM, CUTOFF, Z2S, SPSYM} # this is a bit of hack. We directly provide the bond symmetry here as we can't infere it because it's built into the symmetric basis.
+# function OffSiteModels(models::AbstractDict{Tuple{AtomicNumber,AtomicNumber}, TM}, env::CUTOFF, ::SPSYM, ::Z2S) where {TM, CUTOFF, Z2S, SPSYM} # this is a bit of hack. We directly provide the bond symmetry here as we can't infere it because it's built into the symmetric basis.
 #     if SPSYM<:SpeciesCoupled
 #         @assert all(_msort(zz...) == zz for zz in keys(models))
 #     elseif SPSYM<:SpeciesUnCoupled
@@ -323,11 +323,11 @@ env_cutoff(models::SiteModels) = maximum(env_cutoff(mo.cutoff) for mo in values(
 # end
 
 
-# function OffSiteModels(models::Dict{Tuple{AtomicNumber, AtomicNumber},TM}, rcut::T, spsym=SpeciesUnCoupled()) where {T<:Real,TM}
+# function OffSiteModels(models::AbstractDict{Tuple{AtomicNumber, AtomicNumber},TM}, rcut::T, spsym=SpeciesUnCoupled()) where {T<:Real,TM}
 #     return OffSiteModels(models,SphericalCutoff(rcut), NoZ2Sym(), spsym)
 # end
 
-# function OffSiteModels(models::Dict{Tuple{AtomicNumber, AtomicNumber},TM},
+# function OffSiteModels(models::AbstractDict{Tuple{AtomicNumber, AtomicNumber},TM},
 #     rcutbond::T, rcutenv::T, zcutenv::T, z2sym=NoZ2Sym(), spsym=SpeciesUnCoupled()) where {T<:Real,TM}
 #     return OffSiteModels(models, EllipsoidCutoff(rcutbond, rcutenv, zcutenv), z2sym, spsym)
 # end
@@ -346,12 +346,12 @@ ACEfrictionCore.ACEbonds.bonds(at::Atoms, offsite::OffSiteModels, site_filter) =
 #         sqrt((offsite.env.rcutbond*.5)^2+ offsite.env.rcutenv^2)),
 #                 (r, z, i, j) -> env_filter(r, z), site_filter )
 struct SiteInds
-    onsite::Dict{AtomicNumber,UnitRange{Int}}
-    offsite::Dict{Tuple{AtomicNumber,AtomicNumber},UnitRange{Int}}
+    onsite::AbstractDict{AtomicNumber,UnitRange{Int}}
+    offsite::AbstractDict{Tuple{AtomicNumber,AtomicNumber},UnitRange{Int}}
 end
-SiteInds(onsite::Dict{AtomicNumber,UnitRange{Int}}) = SiteInds(onsite, Dict{Tuple{AtomicNumber,AtomicNumber},UnitRange{Int}}())
-SiteInds(offsite::Dict{Tuple{AtomicNumber,AtomicNumber},UnitRange{Int}}) = SiteInds(Dict{AtomicNumber,UnitRange{Int}}(), offsite)
-# function SiteInds(onsite::Dict{AtomicNumber, UnitRange{Int}}, offsite::Dict{Tuple{AtomicNumber, AtomicNumber}, UnitRange{Int}}, speciescoupling::SPSYM )
+SiteInds(onsite::AbstractDict{AtomicNumber,UnitRange{Int}}) = SiteInds(onsite, AbstractDict{Tuple{AtomicNumber,AtomicNumber},UnitRange{Int}}())
+SiteInds(offsite::AbstractDict{Tuple{AtomicNumber,AtomicNumber},UnitRange{Int}}) = SiteInds(AbstractDict{AtomicNumber,UnitRange{Int}}(), offsite)
+# function SiteInds(onsite::AbstractDict{AtomicNumber, UnitRange{Int}}, offsite::AbstractDict{Tuple{AtomicNumber, AtomicNumber}, UnitRange{Int}}, speciescoupling::SPSYM )
 #     _assert_offsite_keys(offsite,speciescoupling)
 #     new{SPSYM}(onsite, offsite)
 # end
@@ -553,11 +553,11 @@ get_range(m::MatrixModel, args...) = get_range(m.inds, args...)
 get_interaction(m::MatrixModel, args...) = get_interaction(m.inds, args...)
 
 
-# function _get_basisinds(onsitemodels::Dict{AtomicNumber, TM1},offsitemodels::Dict{Tuple{AtomicNumber, AtomicNumber}, TM2}) where {TM1, TM2}
+# function _get_basisinds(onsitemodels::AbstractDict{AtomicNumber, TM1},offsitemodels::AbstractDict{Tuple{AtomicNumber, AtomicNumber}, TM2}) where {TM1, TM2}
 #     return SiteInds(_get_basisinds(onsitemodels), _get_basisinds(offsitemodels))
 # end
 
-function _get_basisinds(models::Dict{Z,TM}) where {Z,TM}
+function _get_basisinds(models::AbstractDict{Z,TM}) where {Z,TM}
     inds = Dict{Z,UnitRange{Int}}()
     i0 = 1
     for (zz, mo) in models
