@@ -83,11 +83,13 @@ The local environment entering each block is delimited by a cutoff:
 
 - **`SphericalCutoff(rcut; partner_in_env=true)`** — used for onsite blocks and for the atom-centred offsite blocks of `CWCMatrixModel` and `PWCMatrixModel`: the environment of $i$ is $\mathcal{N}_i = \{\,k : \|{\bm r}_{ik}\| \le r_{\rm cut}\,\}$, and for a pair $(i,j)$ the bond partner is $j\in\mathcal{N}_i$. By default (`partner_in_env=true`) the environment features of the bond $(i,j)$ are pooled over all of $\mathcal{N}_i$, the partner included; with `partner_in_env=false` they are pooled over $\mathcal{N}_i\setminus\{j\}$ (the original convention; models saved before this option existed use it). See [Evaluation cost](@ref evaluation-cost) for why the latter is much cheaper to evaluate.
 - **`EllipsoidCutoff(rcutbond, rcutenv, zcutenv)`** — a bond-centred ellipsoidal environment for `PWCMatrixModel`: bonds with $\|{\bm r}_{ij}\|\le r_{\rm cut}^{\rm bond}$, and environment atoms inside $(z/z_{\rm cut}^{\rm env})^2 + (r/r_{\rm cut}^{\rm env})^2 \le 1$ around the bond midpoint ($z$ along the bond, $r$ perpendicular).
-- **`SnowManCutoff(rcut, symmetry; partner_in_env=true)`** — an atom-centred alternative for the pair model: the block of $(i,j)$ combines the ACE basis evaluated on the spherical environment of $i$ (bond $i\to j$) and of $j$ (bond $j\to i$),
+- **`SnowManCutoff(rcut, symmetry = :general; partner_in_env=true)`** — an atom-centred alternative for the pair model: the block of $(i,j)$ combines the ACE basis evaluated on the spherical environment of $i$ (bond $i\to j$) and of $j$ (bond $j\to i$). Writing ${\bm B}_{ij} = B(\text{sphere}_i, i\to j)$,
   ```math
-  {\bm \Sigma}_{ij} = c\cdot B(\text{sphere}_i, i\to j) \;\pm\; c\cdot B(\text{sphere}_j, j\to i),
+  {\bm \Sigma}_{ij} = c_{+}\cdot\big({\bm B}_{ij} + {\bm B}_{ji}\big) \;+\; c_{-}\cdot\big({\bm B}_{ij} - {\bm B}_{ji}\big)
   ```
-  with the sign set by `symmetry` (`:symmetric` $\to +$, giving ${\bm \Sigma}_{ij}={\bm \Sigma}_{ji}$; `:antisymmetric` $\to -$, giving ${\bm \Sigma}_{ij}=-{\bm \Sigma}_{ji}$).
+  with independent coefficients $c_{+}, c_{-}$ for the default `symmetry = :general` (the basis is the stacked $[{\bm B}_{ij}+{\bm B}_{ji};\, {\bm B}_{ij}-{\bm B}_{ji}]$, twice the size of the bond basis). Then ${\bm \Sigma}_{ji} \neq \pm{\bm \Sigma}_{ij}$ and the off-diagonal friction blocks ${\bm \Gamma}_{ij} = {\bm \Sigma}_{ij}{\bm \Sigma}_{ji}^{T}$ are in general **not** symmetric $3\times 3$ matrices (${\bm \Gamma}$ itself remains symmetric positive semi-definite). The two restrictions are available as `:symmetric` ($c_{-}=0$: ${\bm \Sigma}_{ji}={\bm \Sigma}_{ij}$, ${\bm \Gamma}_{ij}={\bm \Sigma}_{ij}{\bm \Sigma}_{ij}^{T}$) and `:antisymmetric` ($c_{+}=0$: ${\bm \Sigma}_{ji}=-{\bm \Sigma}_{ij}$, momentum-conserving), both with a single coefficient set. Models saved before the `symmetry` tag was stored load as `:symmetric`.
+
+  Bond-only basis functions (no environment factor) satisfy ${\bm B}_{ji} = \pm{\bm B}_{ij}$ on a homonuclear pair, so one of their two combinations vanishes identically; regularised fits are unaffected.
 
 ## [Evaluation cost](@id evaluation-cost)
 

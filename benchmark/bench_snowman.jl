@@ -3,7 +3,8 @@
 #
 #     julia --project=. benchmark/bench_snowman.jl
 #
-# The SnowMan block is Σ_ij = c·B(sphere_i, bond i→j) ± c·B(sphere_j, bond j→i). The
+# The SnowMan block is Σ_ij = c·B(sphere_i, bond i→j) ± c·B(sphere_j, bond j→i)
+# (:symmetric / :antisymmetric), or c₊·(B_ij + B_ji) + c₋·(B_ij − B_ji) (:general). The
 # naive path (`cache=false`) evaluates each directed bond twice (once per ordered pair
 # that uses it), each time from a fresh per-centre state; the default path
 # (`cache=true`) walks the centres once, shares each centre's neighbour data and
@@ -84,6 +85,7 @@ function run_bench_ellipsoid(; maxorder = 2, maxdeg = 6, n_rep = 2, samples = 5)
     end
 end
 
+run_bench(sym = :general)
 run_bench(sym = :symmetric)
 run_bench(sym = :antisymmetric)
 run_bench_ellipsoid()

@@ -10,7 +10,7 @@ using ACEfriction: EuclideanMatrix, SymmetricEuclideanMatrix, EuclideanVector, I
       SnowManCutoff, EllipsoidCutoff
 import ACEfriction.MatrixModels
 using ACEfriction.MatrixModels: _sites, _species, _mreduce, _keep_partner, evaluate_basis, _contract,
-      _snowman_combine, _site_nb_table, _reverse_loc, _cwc_rcut, block_type, _get_SC, env_cutoff,
+      _snowman_basis_combine, _site_nb_table, _reverse_loc, _cwc_rcut, block_type, _get_SC, env_cutoff,
       SpeciesCoupled, SpeciesUnCoupled, Odd, NoZ2Sym
 using ACEfriction.ETBackend: et_bonds
 using Test, LinearAlgebra, StaticArrays, SparseArrays, Random
@@ -90,7 +90,7 @@ function ref_sigma(M::PWCMatrixModel{O3S, <:SnowManCutoff}, at::AbstractSystem; 
          (neigs_j, Rs_j) = nb[j]
          il = _reverse_loc(neigs_j, Rs_j, i, Rs_i[jl])
          Bji = evaluate_basis(om, il, Rs_j, Z[neigs_j])
-         s = _contract(om, _snowman_combine.(Ref(om.cutoff), Bij, Bji))
+         s = _contract(om, _snowman_basis_combine(om.cutoff, Bij, Bji))   # 2K for :general
          for r in 1:M.n_rep; Σ[r][i, j] += s[r]; end
       end
    end
@@ -162,8 +162,8 @@ const PROPS = (EuclideanMatrix(Float64), SymmetricEuclideanMatrix(Float64),
       m = PWCMatrixModel(prop, species_fr, species_env; maxorder = 2, maxdeg = 4, rcut = 4.5, n_rep = 2,
                          speciescoupling = SpeciesCoupled(), partner_in_env = pie, sel...)
       check_consistent(m, at3)
-      # SnowMan, both symmetries
-      for sym in (:symmetric, :antisymmetric)
+      # SnowMan, all symmetries (:general uses separate coefficients for the two ends)
+      for sym in (:general, :symmetric, :antisymmetric)
          m = PWCMatrixModel(prop, species_fr, species_env, SnowManCutoff(4.5, sym; partner_in_env = pie);
                             maxorder = 2, maxdeg = 4, n_rep = 2, sel...)
          check_consistent(m, at3)
@@ -200,9 +200,11 @@ const PROPS = (EuclideanMatrix(Float64), SymmetricEuclideanMatrix(Float64),
       m = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H]; maxorder = 2, maxdeg = 4, rcut = 5.0,
                          n_rep = 2, include_self_images = si, partner_in_env = pie)
       check_consistent(m, at_small)
-      m = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H], SnowManCutoff(5.0, :symmetric; partner_in_env = pie);
-                         maxorder = 2, maxdeg = 4, n_rep = 2, include_self_images = si)
-      check_consistent(m, at_small)
+      for sym in (:general, :symmetric)
+         m = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H], SnowManCutoff(5.0, sym; partner_in_env = pie);
+                            maxorder = 2, maxdeg = 4, n_rep = 2, include_self_images = si)
+         check_consistent(m, at_small)
+      end
    end
 
    @testset "coefficients changed after construction are picked up" begin

@@ -37,25 +37,36 @@ _dense(G, N) = (A = zeros(3N, 3N); for i=1:N, j=1:N; A[3i-2:3i, 3j-2:3j] .= G[i,
       @test minimum(eigvals(Symmetric(Gd))) > -1e-8
    end
 
-   @testset "SnowMan PWC ($sym): combine, basis/matrix consistency, IO" for sym in (:symmetric, :antisymmetric)
+   @testset "SnowMan PWC ($sym): combine, basis/matrix consistency, IO" for sym in (:general, :symmetric, :antisymmetric)
       # Σ_ij = c·basis(sphere_i, bond i→j) ± c·basis(sphere_j, bond j→i): combining both
       # bond ends makes Σ symmetric (+) or antisymmetric (−), selected by the cutoff's
-      # type-parameter symmetry via _snowman_combine. Γ stays PSD; the un-contracted
-      # basis contracted with c reproduces Σ; the symmetry round-trips through IO.
+      # type-parameter symmetry. :general has separate coefficients for the symmetric
+      # and antisymmetric combinations, so Σ is neither and the off-diagonal Γ blocks are
+      # not symmetric. Γ stays symmetric PSD; the un-contracted basis contracted with c
+      # reproduces Σ; the symmetry round-trips through IO.
       m = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu], SnowManCutoff(5.0, sym);
                          maxorder=2, maxdeg=4, n_rep=2)
       fm = FrictionModel((equ=m,))
       Σ = Sigma(fm, at).equ[1]
       I, J, _ = findnz(Σ)
-      resid = sym === :symmetric ? maximum(norm(Σ[i,j] - Σ[j,i]) for (i,j) in zip(I,J)) :
-                                   maximum(norm(Σ[i,j] + Σ[j,i]) for (i,j) in zip(I,J))
-      @test resid < 1e-10                                       # (anti)symmetry of Σ
-      Gd = _dense(Gamma(fm, at), N)
+      rsym  = maximum(norm(Σ[i,j] - Σ[j,i]) for (i,j) in zip(I,J))
+      rasym = maximum(norm(Σ[i,j] + Σ[j,i]) for (i,j) in zip(I,J))
+      Γ = Gamma(fm, at)
+      rΓ = maximum(norm(Γ[i,j] - Γ[i,j]') for (i,j) in zip(I,J) if i != j)
+      if sym === :general
+         @test rsym > 1e-3 && rasym > 1e-3                        # Σ_ji ≠ ±Σ_ij
+         @test rΓ > 1e-6                                          # non-symmetric Γ_ij blocks
+      else
+         @test (sym === :symmetric ? rsym : rasym) < 1e-10        # (anti)symmetry of Σ
+         @test rΓ < 1e-10                                         # Γ_ij = ±Σ_ij Σ_ijᵀ
+      end
+      Gd = _dense(Γ, N)
       @test norm(Gd - Gd') < 1e-8
       @test minimum(eigvals(Symmetric(Gd))) > -1e-8
       # basis · c == matrix (fitting-path consistency)
       Boff = ACEfriction.MatrixModels.basis(m, at).offsite
       cc = m.offsite[(29,29)].c
+      @test length(Boff) == length(cc)
       @test norm(sum(cc[k][1] * Boff[k] for k in eachindex(Boff)) - Σ) < 1e-10
       # cached (default) vs naive double-eval assembly agree exactly
       Σn = ACEfriction.MatrixModels.matrix(m, at; cache=false)
@@ -66,6 +77,29 @@ _dense(G, N) = (A = zeros(3N, 3N); for i=1:N, j=1:N; A[3i-2:3i, 3j-2:3j] .= G[i,
       fm2 = read_dict(write_dict(fm))
       @test fm2.matrixmodels.equ.offsite[(29,29)].cutoff isa SnowManCutoff{Float64, sym}
       @test norm(_dense(Gamma(fm2, at), N) - Gd) < 1e-10
+   end
+
+   @testset "SnowMan :general: default, parameter layout, reduction to :symmetric/:antisymmetric" begin
+      # :general stacks the symmetric and antisymmetric combinations of the two bond ends,
+      # coefficients [c₊; c₋]; c₋ = 0 is the :symmetric and c₊ = 0 the :antisymmetric model.
+      MM = ACEfriction.MatrixModels
+      @test SnowManCutoff(5.0) isa SnowManCutoff{Float64, :general}
+      build(sym) = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu], SnowManCutoff(5.0, sym);
+                                  maxorder=2, maxdeg=4, n_rep=2)
+      mg, ms, ma = build(:general), build(:symmetric), build(:antisymmetric)
+      K = MM.nparams(ms)
+      @test MM.nparams(mg) == 2K && MM.nparams(ma) == K
+      @test length(MM.scaling(mg, 2).offsite) == 2K
+      @test MM.scaling(mg, 2).offsite ≈ repeat(MM.scaling(ms, 2).offsite, 2)
+      Σof(m) = MM.matrix(m, at)
+      c = params(ms; format=:native)
+      set_params!(mg, vcat(c, zero.(c))); set_params!(ma, c)
+      @test maximum(norm(Σof(mg)[r] - Σof(ms)[r]) for r in 1:2) < 1e-12
+      set_params!(mg, vcat(zero.(c), c))
+      @test maximum(norm(Σof(mg)[r] - Σof(ma)[r]) for r in 1:2) < 1e-12
+      # a :general snowman needs both bond ends; there is no single-end evaluation
+      om = mg.offsite[(29,29)]
+      @test_throws ErrorException MM.evaluate(om, 1, [SVector(2.0, 0.0, 0.0)], [29])
    end
 
    @testset "partner_in_env (factorised pair environment): consistency + IO" begin

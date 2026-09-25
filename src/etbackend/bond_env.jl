@@ -67,35 +67,46 @@ partner_in_env(c::SphericalCutoff) = c.partner_in_env
 partner_in_env(c::EllipsoidCutoff) = false
 
 """
-    SnowManCutoff(rcut, symmetry = :symmetric)
+    SnowManCutoff(rcut, symmetry = :general; partner_in_env = true)
 
 Atom-centred pair-environment cutoff combining *both* bond ends: the diffusion block
 of a pair `(i,j)` evaluates the ACE basis on the spherical environment of `i` (with
 `j` the bond partner) and on the spherical environment of `j` (with `i` the bond
-partner) — two overlapping spheres, one per bond end (the "snowman") — and combines
-them with the *same* coefficients. The combination is selected by `symmetry`:
+partner) — two overlapping spheres, one per bond end (the "snowman"). Writing
+`B_ij = basis(sphere_i, bond i→j)`, the combination is selected by `symmetry`:
 
-    :symmetric      Σ_ij = c · basis(sphere_i, bond i→j) + c · basis(sphere_j, bond j→i)
-    :antisymmetric  Σ_ij = c · basis(sphere_i, bond i→j) - c · basis(sphere_j, bond j→i)
+    :general        Σ_ij = c₊ · (B_ij + B_ji) + c₋ · (B_ij - B_ji)     (default)
+    :symmetric      Σ_ij = c · (B_ij + B_ji)                             Σ_ji =  Σ_ij
+    :antisymmetric  Σ_ij = c · (B_ij - B_ji)                             Σ_ji = -Σ_ij
+
+With `:symmetric` / `:antisymmetric` both ends share the coefficients, so every
+off-diagonal friction block `Γ_ij = Σ_ij Σ_jiᵀ = ±Σ_ij Σ_ijᵀ` is a symmetric 3×3 matrix.
+`:general` has independent coefficients for the symmetric and the antisymmetric
+combination (twice as many parameters: the basis is the stacked `[B_ij + B_ji; B_ij - B_ji]`,
+coefficients `[c₊; c₋]`), so `Σ_ji ≠ ±Σ_ij` and `Γ_ij` is in general not symmetric (`Γ`
+itself stays symmetric positive semi-definite). It contains the other two as the
+restrictions `c₋ = 0` (`:symmetric`) and `c₊ = 0` (`:antisymmetric`).
 
 `symmetry` is carried as a (Symbol-valued) type parameter `SnowManCutoff{T, S}` so the
 assembly dispatches on it. `rcut` is the per-centre spherical radius (same convention as
 [`SphericalCutoff`](@ref)). The keyword `partner_in_env` (default `true`) has the same
 meaning as for [`SphericalCutoff`](@ref): with `true` the bond partner is pooled into each
 sphere's environment, which lets the per-centre evaluation be shared across all bonds.
+
+Models saved before the `symmetry` tag was serialized load as `:symmetric`.
 """
 struct SnowManCutoff{T, S}
    rcut::T
    partner_in_env::Bool
-   function SnowManCutoff(rcut::T, symmetry::Symbol = :symmetric;
+   function SnowManCutoff(rcut::T, symmetry::Symbol = :general;
                           partner_in_env::Bool = true) where {T}
-      @assert symmetry in (:symmetric, :antisymmetric) "symmetry must be :symmetric or :antisymmetric (got :$symmetry)."
+      @assert symmetry in (:general, :symmetric, :antisymmetric) "symmetry must be :general, :symmetric or :antisymmetric (got :$symmetry)."
       return new{T, symmetry}(rcut, partner_in_env)
    end
 end
 env_cutoff(sc::SnowManCutoff) = sc.rcut
 partner_in_env(c::SnowManCutoff) = c.partner_in_env
-"the symmetry tag (`:symmetric` / `:antisymmetric`) carried in the type parameter."
+"the symmetry tag (`:general` / `:symmetric` / `:antisymmetric`) carried in the type parameter."
 symmetry(::SnowManCutoff{T, S}) where {T, S} = S
 
 """
@@ -103,10 +114,59 @@ symmetry(::SnowManCutoff{T, S}) where {T, S} = S
 
 Combine the two bond-end contributions of a snowman pair according to the cutoff's
 symmetry: `a + b` for `:symmetric`, `a - b` for `:antisymmetric`. Dispatches on the
-Symbol-valued type parameter of [`SnowManCutoff`](@ref).
+Symbol-valued type parameter of [`SnowManCutoff`](@ref). (`:general` combines the two
+ends with different coefficients; see `_snowman_basis_combine` / `_snowman_sigma_combine`.)
 """
 _snowman_combine(::SnowManCutoff{T, :symmetric}, a, b) where {T} = a + b
 _snowman_combine(::SnowManCutoff{T, :antisymmetric}, a, b) where {T} = a - b
+
+"""
+    _snowman_nbasis(cutoff, K)
+
+Number of snowman basis functions (= coefficients) built from a bond basis of length
+`K`: `2K` for `:general` (stacked symmetric / antisymmetric combinations), `K` otherwise.
+"""
+_snowman_nbasis(::SnowManCutoff{T, :general}, K::Integer) where {T} = 2K
+_snowman_nbasis(::SnowManCutoff, K::Integer) = K
+
+"""
+    _snowman_basis_combine(cutoff, Bij, Bji)
+
+Snowman basis of a pair from the (length-`K`) bond bases of its two ends,
+`Bij = basis(sphere_i, bond i→j)` and `Bji = basis(sphere_j, bond j→i)`:
+`[Bij + Bji; Bij - Bji]` (length `2K`) for `:general`, `Bij ± Bji` otherwise.
+"""
+_snowman_basis_combine(::SnowManCutoff{T, :general}, Bij, Bji) where {T} =
+      vcat(Bij .+ Bji, Bij .- Bji)
+_snowman_basis_combine(sc::SnowManCutoff, Bij, Bji) = map((a, b) -> _snowman_combine(sc, a, b), Bij, Bji)
+
+"""
+    _snowman_fast_coeffs(c::AbstractVector{SVector{NR}}) -> Vector{SVector{2NR}}
+
+Coefficients of the fused fast evaluator of a `:general` snowman model. With
+`c = [c₊; c₋]` (length `2K`), `Σ_ij = a·B_ij + b·B_ji` where `a = c₊ + c₋` and
+`b = c₊ - c₋`; the fused coefficients are `[a_k; b_k]`, so one contraction of a directed
+bond `i→j` yields both `a·B_ij` (first `NR` entries) and `b·B_ij` (last `NR`).
+"""
+function _snowman_fast_coeffs(c::AbstractVector{SVector{NR, T}}) where {NR, T}
+   K, r = divrem(length(c), 2)
+   @assert r == 0 "a :general snowman model has an even number of coefficients (got $(length(c)))."
+   return [ vcat(c[k] + c[K + k], c[k] - c[K + k]) for k in 1:K ]
+end
+
+"""
+    _snowman_sigma_combine(cutoff, Vij, Vji)
+
+Diffusion block of a snowman pair from the contracted values of its two directed bonds
+(`Vij` for bond `i→j` on sphere `i`, `Vji` for `j→i` on sphere `j`), per replica. For
+`:general` the values are the fused `[a·B; b·B]` (see `_snowman_fast_coeffs`) and
+`Σ_ij = a·B_ij + b·B_ji`.
+"""
+_snowman_sigma_combine(sc::SnowManCutoff, Vij, Vji) = _snowman_combine.(Ref(sc), Vij, Vji)
+@inline function _snowman_sigma_combine(::SnowManCutoff{T, :general}, Vij::SVector{M2}, Vji::SVector{M2}) where {T, M2}
+   NR = M2 ÷ 2
+   return SVector(ntuple(r -> Vij[r] + Vji[NR + r], Val(NR)))
+end
 
 """
     spherical_bond_transform(j_loc, Rs, Zs, sc) -> (r̂bond, Rs_env, Zs_env)

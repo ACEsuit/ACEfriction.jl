@@ -70,11 +70,12 @@ function _pwc_matrix(offsite::AbstractDict, ::Type{SC}, self_images, n_rep::Int,
     return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]
 end
 
-# ---- Σ assembly (snowman: symmetrised over both bond ends) ----
-# Σ_ij = c·B(sphere_i, bond i→j) + c·B(sphere_j, bond j→i): the diffusion block of a
+# ---- Σ assembly (snowman: combines both bond ends) ----
+# Σ_ij = a·B(sphere_i, bond i→j) + b·B(sphere_j, bond j→i): the diffusion block of a
 # pair combines the ACE basis on i's spherical environment (j the bond partner) and
-# on j's spherical environment (i the bond partner). Needs both sites' neighbour
-# data, so the per-site lists are materialised up front.
+# on j's spherical environment (i the bond partner); b = ±a for the :symmetric /
+# :antisymmetric cutoff, independent for :general (see `SnowManCutoff`). Needs both
+# sites' neighbour data, so the per-site lists are materialised up front.
 
 # materialise per-site neighbour data (indices + relative vectors) for O(1) lookup
 function _site_nb_table(at::AbstractSystem, rcut::Real)
@@ -189,10 +190,11 @@ function _snowman_matrix(offsite::AbstractDict, ::Type{SC}, self_images, n_rep::
     Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]
     Vs = [ Vector{block_type(first(values(offsite)).basis, T)}() for _=1:n_rep ]
     evalΣ(om, ctr, loc) = bond_sigma(om.fast, ctr, loc; partner_in_env = _partner_in_env(om))
-    VT = SVector{n_rep, block_type(first(values(offsite)).basis)}
+    # per directed bond: n_rep values, or 2n_rep fused values for a :general snowman
+    VT = SVector{ETBackend.n_rep(first(values(offsite)).fast), block_type(first(values(offsite)).basis)}
     # contracted values depend on the pair's model -> memoised per model
-    _snowman_walk(offsite, SC, self_images, at, filter, :sigma, evalΣ, VT, true, cache) do i, j, zz, om, Σij, Σji
-        Σ = _snowman_combine.(Ref(om.cutoff), Σij, Σji)                # combine the two bond ends
+    _snowman_walk(offsite, SC, self_images, at, filter, :sigma, evalΣ, VT, true, cache) do i, j, zz, om, Vij, Vji
+        Σ = _snowman_sigma_combine(om.cutoff, Vij, Vji)                 # combine the two bond ends
         for r = 1:n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σ[r]); end
     end
     return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]
@@ -258,7 +260,7 @@ function _snowman_basis(offsite::AbstractDict, ::Type{SC}, self_images, inds::Si
     VT = Vector{block_type(first(values(offsite)).basis)}
     # basis vectors are model independent -> one stored value per directed bond
     _snowman_walk(offsite, SC, self_images, at, filter, :basis, evalB, VT, false, cache) do i, j, zz, om, Bij, Bji
-        _accum!(acc, zz, i, j, map((b1, b2) -> _snowman_combine(om.cutoff, b1, b2), Bij, Bji))
+        _accum!(acc, zz, i, j, _snowman_basis_combine(om.cutoff, Bij, Bji))
     end
     return _assemble(acc, zz -> get_range(inds, zz), K, N)
 end
