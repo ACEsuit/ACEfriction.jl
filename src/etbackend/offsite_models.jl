@@ -18,16 +18,18 @@ using AtomsBase: AbstractSystem, atomic_number
 Flattened offsite site model: a bond `ETFrictionSiteBasis` + coefficients `c` +
 the cutoff (`EllipsoidCutoff` or `SphericalCutoff`) defining its bond environment.
 """
-mutable struct ETOffsiteModel{NR, P, TB, CUT}
+mutable struct ETOffsiteModel{NR, P, TB, CUT, TF}
    basis::TB
    c::Vector{SVector{NR, Float64}}
    cutoff::CUT
+   fast::TF                            # ETFastModel: contracted evaluation (fasteval.jl)
 end
 
 function ETOffsiteModel(basis::ETFrictionSiteBasis{P}, c::Vector{SVector{NR,Float64}},
                         cutoff::CUT) where {P, NR, CUT}
    @assert length(basis) == length(c)
-   return ETOffsiteModel{NR, P, typeof(basis), CUT}(basis, c, cutoff)
+   fast = ETFastModel(basis, c)
+   return ETOffsiteModel{NR, P, typeof(basis), CUT, typeof(fast)}(basis, c, cutoff, fast)
 end
 
 ETOffsiteModel(basis::ETFrictionSiteBasis, n_rep::Integer, cutoff) =
@@ -56,16 +58,21 @@ function evaluate_basis(m::ETOffsiteModel, rrij::SVector{3}, Rs, Zs)
    rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, m.cutoff)
    return evaluate_bond(m.basis, rbond, Rst, Zst)
 end
-evaluate(m::ETOffsiteModel, rrij::SVector{3}, Rs, Zs) =
-      _contract(m, evaluate_basis(m, rrij, Rs, Zs))
+function evaluate(m::ETOffsiteModel, rrij::SVector{3}, Rs, Zs)
+   rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, m.cutoff)
+   return evaluate_bond(refresh!(m.fast, m.c), rbond, Rst, Zst)
+end
 
 # --- spherical: atom-i neighbourhood + bond-partner index (dispatch on Int) ---
 function evaluate_basis(m::ETOffsiteModel, j_loc::Integer, Rs, Zs)
    rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, m.cutoff)
    return evaluate_bond(m.basis, rbond, Rse, Zse)
 end
-evaluate(m::ETOffsiteModel, j_loc::Integer, Rs, Zs) =
-      _contract(m, evaluate_basis(m, j_loc, Rs, Zs))
+function evaluate(m::ETOffsiteModel, j_loc::Integer, Rs, Zs)
+   fm = refresh!(m.fast, m.c); pie = partner_in_env(m.cutoff)
+   ctr = bond_centre(fm, Rs, Zs, m.cutoff.rcut; partner_in_env = pie)
+   return bond_sigma(fm, ctr, Int(j_loc); partner_in_env = pie)
+end
 
 # ---------------------------------------------------------------------------
 

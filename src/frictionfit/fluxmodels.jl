@@ -25,12 +25,15 @@ function _msum(A::AbstractArray{T,N}, B::AbstractArray{T,N}) where {T,N}
     return C
 end
 
-function _Gamma(B::AbstractArray{T,4}, cc::AbstractArray{T,2}, ::Type{<:CWCMatrixModel}) where {T}
+# friction tensor by the model's Σ structure (see `sigma_structure`)
+_Gamma(B, cc, ::Type{TM}) where {TM<:MatrixModel} = _Gamma(B, cc, sigma_structure(TM))
+
+function _Gamma(B::AbstractArray{T,4}, cc::AbstractArray{T,2}, ::FullSigma) where {T}
     @tullio Σ[d,i,j,r] := B[d,i,j,k] * cc[k,r]
     @tullio Γ[d1,d2,i,j] := Σ[d1,i,k,r]  * Σ[d2,j,k,r] 
     return Γ
 end
-function _Gamma(B::AbstractArray{T,5}, cc::AbstractArray{T,2}, ::Type{<:CWCMatrixModel}) where {T}
+function _Gamma(B::AbstractArray{T,5}, cc::AbstractArray{T,2}, ::FullSigma) where {T}
     @tullio Σ[d1,d2,i,j,r] := B[d1,d2,i,j,k] * cc[k,r]
     @tullio Γ[d1,d2,i,j] := Σ[d1,d,i,k,r] * Σ[d2,d,j,k,r] 
     return Γ
@@ -48,26 +51,26 @@ end
 #     @tullio Γd[d1,d2,i,i] := Σ[d1,d,i,j,r] * Σ[d2,d,i,j,r] 
 #     return Γ + Γd
 # end
-function _Gamma(Bt::AbstractArray{T,4}, cc::AbstractArray{T,2}, ::Type{<:PWCMatrixModel}) where {T}
+function _Gamma(Bt::AbstractArray{T,4}, cc::AbstractArray{T,2}, ::PairSigma) where {T}
     @tullio Σ[d,i,j,r] := Bt[d,i,j,k] * cc[k,r]
     @tullio Γ[d1,d2,i,j] :=  Σ[d1,i,j,r] *  Σ[d2,j,i,r]
     @tullio Γd[d1,d2,i,i] := Σ[d1,i,j,r] * Σ[d2,i,j,r] 
     return Γ + Γd
 end
-function _Gamma(Bt::AbstractArray{T,5}, cc::AbstractArray{T,2}, ::Type{<:PWCMatrixModel}) where {T}
+function _Gamma(Bt::AbstractArray{T,5}, cc::AbstractArray{T,2}, ::PairSigma) where {T}
     @tullio Σ[d1,d2,i,j,r] := Bt[d1,d2,i,j,k] * cc[k,r]
     @tullio Γ[d1,d2,i,j] :=  Σ[d1,d,i,j,r] *  Σ[d2,d,j,i,r]
     @tullio Γd[d1,d2,i,i] := Σ[d1,d,i,j,r] * Σ[d2,d,i,j,r] 
     return Γ + Γd
 end
 
-function _Gamma(Bt::AbstractArray{T,3}, cc::AbstractArray{T,2}, ::Type{<:OnsiteOnlyMatrixModel}) where {T} 
+function _Gamma(Bt::AbstractArray{T,3}, cc::AbstractArray{T,2}, ::DiagonalSigma) where {T} 
     @tullio Σ[i,l,r] := Bt[i,l,k] * cc[k,r]
     @tullio Γ[i,j,l] :=  Σ[i,l,r] * Σ[j,l,r]
     return Γ
 end
 
-function _Gamma(Bt::AbstractArray{T,4}, cc::AbstractArray{T,2}, ::Type{<:OnsiteOnlyMatrixModel}) where {T} 
+function _Gamma(Bt::AbstractArray{T,4}, cc::AbstractArray{T,2}, ::DiagonalSigma) where {T} 
     @tullio Σ[i,j,l,r] := Bt[i,j,l,k] * cc[k,r]
     @tullio Γ[i,j,l] :=  Σ[i,d,l,r] * Σ[j,d,l,r]
     return Γ

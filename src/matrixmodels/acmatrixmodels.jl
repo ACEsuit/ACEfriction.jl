@@ -21,52 +21,79 @@ struct CWCMatrixModel{O3S, Z2S, SC, EC} <: MatrixModel{O3S}
 end
 
 _get_SC(::CWCMatrixModel{O3S, Z2S, SC}) where {O3S, Z2S, SC} = SC
+sigma_structure(::Type{<:CWCMatrixModel}) = FullSigma()
 _cwc_rcut(M::CWCMatrixModel) = max(env_cutoff(M.onsite), env_cutoff(M.offsite))
 
+# Σ assembly. Onsite blocks come from the fused onsite evaluator; the bonds of a
+# centre share one per-centre bond state (`bond_centre`, keyed by species pair),
+# so radial / Ylm / A are evaluated once per centre rather than once per bond.
 function matrix(M::CWCMatrixModel{O3S, Z2S, SC}, at::AbstractSystem;
                 filter=(_,_)->true, T=Float64) where {O3S, Z2S, SC}
+    _refresh!(M)
+    return _cwc_matrix(M.onsite, M.offsite, SC, M.self_images, M.n_rep, _cwc_rcut(M), at, filter, T)
+end
+
+# function barrier: the site-model dicts / self-image policy arrive concretely typed
+# (the model fields are abstractly typed), so the per-bond calls dispatch statically.
+function _cwc_matrix(onsite::AbstractDict, offsite::AbstractDict, ::Type{SC}, self_images, n_rep::Int,
+                     rcut::Real, at, filter, ::Type{T}) where {SC, T}
     N = length(at); Z = _species(at)
-    Is = [Int[] for _=1:M.n_rep]; Js = [Int[] for _=1:M.n_rep]; Vs = [_block_type(M,T)[] for _=1:M.n_rep]
-    for (i, neigs, Rs) in _sites(at, _cwc_rcut(M))
+    BT = block_type(first(values(onsite)).basis, T)
+    Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]; Vs = [BT[] for _=1:n_rep]
+    ctrs = _centre_cache(offsite)
+    wss = _workspace_cache(onsite)
+    for (i, neigs, Rs) in _sites(at, rcut)
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
-        if haskey(M.onsite, Z[i])
-            Σi = evaluate(M.onsite[Z[i]], Rs, Zs)
-            for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], i); push!(Vs[r], Σi[r]); end
+        if haskey(onsite, Z[i])
+            om_i = onsite[Z[i]]
+            Σi = evaluate!(_workspace!(wss, Z[i], om_i), om_i, Rs, Zs)
+            for r = 1:n_rep; push!(Is[r], i); push!(Js[r], i); push!(Vs[r], Σi[r]); end
         end
         for (j_loc, j) in enumerate(neigs)
-            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-            Σij = evaluate(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
-            for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
+            (filter(j, at) && _keep_partner(self_images, i, j)) || continue
+            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
+            om = offsite[(Zi, Zj)]
+            ctr = _get_centre!(ctrs, om, (Zi, Zj), i, Rs, Zs)
+            Σij = bond_sigma(om.fast, ctr, j_loc; partner_in_env = _partner_in_env(om))
+            for r = 1:n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
         end
     end
-    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:M.n_rep ]
+    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]
 end
 
 function basis(M::CWCMatrixModel{O3S, Z2S, SC}, at::AbstractSystem;
                join_sites=false, filter=(_,_)->true, T=Float64) where {O3S, Z2S, SC}
+    Bon, Boff = _cwc_basis(M.onsite, M.offsite, SC, M.self_images, M.inds, _cwc_rcut(M), at, filter, T)
+    return (join_sites ? vcat(Bon, Boff) : (onsite = Bon, offsite = Boff))
+end
+
+function _cwc_basis(onsite::AbstractDict, offsite::AbstractDict, ::Type{SC}, self_images, inds::SiteInds,
+                    rcut::Real, at, filter, ::Type{T}) where {SC, T}
     N = length(at); Z = _species(at)
-    Kon = length(M.inds, :onsite); Koff = length(M.inds, :offsite)
-    Ion = [Int[] for _=1:Kon]; Jon = [Int[] for _=1:Kon]; Von = [_block_type(M,T)[] for _=1:Kon]
-    Iof = [Int[] for _=1:Koff]; Jof = [Int[] for _=1:Koff]; Vof = [_block_type(M,T)[] for _=1:Koff]
-    for (i, neigs, Rs) in _sites(at, _cwc_rcut(M))
+    BT = block_type(first(values(onsite)).basis, T)
+    Kon = length(inds, :onsite); Koff = length(inds, :offsite)
+    accon = _BasisAccum{Int, BT}(); accoff = _BasisAccum{Tuple{Int,Int}, BT}()
+    ctrs = _centre_cache(offsite)
+    for (i, neigs, Rs) in _sites(at, rcut)
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
-        if haskey(M.onsite, Z[i])
-            Bi = evaluate_basis(M.onsite[Z[i]], Rs, Zs)
-            for (k, b) in zip(get_range(M, Z[i]), Bi); push!(Ion[k], i); push!(Jon[k], i); push!(Von[k], b); end
+        if haskey(onsite, Z[i])
+            Bi = evaluate_basis(onsite[Z[i]], Rs, Zs)
+            _accum!(accon, Z[i], i, i, Bi)
         end
         for (j_loc, j) in enumerate(neigs)
-            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-            Bij = evaluate_basis(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
-            for (k, b) in zip(get_range(M, (Zi, Zj)), Bij); push!(Iof[k], i); push!(Jof[k], j); push!(Vof[k], b); end
+            (filter(j, at) && _keep_partner(self_images, i, j)) || continue
+            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
+            om = offsite[(Zi, Zj)]
+            ctr = _get_centre!(ctrs, om, (Zi, Zj), i, Rs, Zs, :basis)
+            Bij = bond_basis_blocks(om.fast, ctr, j_loc; partner_in_env = _partner_in_env(om))
+            _accum!(accoff, (Zi, Zj), i, j, Bij)
         end
     end
-    Bon = [ sparse(Ion[k], Jon[k], Von[k], N, N) for k = 1:Kon ]
-    Boff = [ sparse(Iof[k], Jof[k], Vof[k], N, N) for k = 1:Koff ]
-    return (join_sites ? vcat(Bon, Boff) : (onsite = Bon, offsite = Boff))
+    Bon = _assemble(accon, z -> get_range(inds, z), Kon, N)
+    Boff = _assemble(accoff, zz -> get_range(inds, zz), Koff, N)
+    return Bon, Boff
 end
 
 function randf(::CWCMatrixModel, Σ::SparseMatrixCSC{SMatrix{3,3,T,9}, TI}) where {T<:Real, TI<:Int}

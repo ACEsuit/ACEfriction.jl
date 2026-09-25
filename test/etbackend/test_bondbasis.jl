@@ -73,3 +73,20 @@ end
                      rcut=1.0, maxorder=3, maxdeg=5, maxl=2))
    @test nnone == neven + nodd
 end
+
+@testset "empty bond basis: Z2 / O(3) parity conflict is explained" begin
+   # a Z2-odd bond factor (odd degree) cannot give the even total degree of a true
+   # matrix tensor when it is the only factor (maxorder = 1)
+   err = try
+      ETBackend.bond_basis(ETBackend.ETMatrix(), [:Cu]; z2sym = :odd, rcut = 1.0, maxorder = 1, maxdeg = 5)
+      nothing
+   catch e
+      e
+   end
+   @test err isa ErrorException
+   @test occursin("maxorder >= 2", err.msg) && occursin("o3symmetry = false", err.msg)
+   # both remedies give a non-empty basis
+   @test length(ETBackend.bond_basis(ETBackend.ETMatrix(), [:Cu]; z2sym = :odd, rcut = 1.0, maxorder = 2, maxdeg = 5)) > 0
+   @test length(ETBackend.bond_basis(ETBackend.ETMatrix(), [:Cu]; z2sym = :odd, rcut = 1.0, maxorder = 1, maxdeg = 5,
+                                     o3symmetry = false)) > 0
+end

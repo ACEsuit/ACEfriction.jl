@@ -4,10 +4,12 @@
 #     julia --project=. benchmark/bench_snowman.jl
 #
 # The SnowMan block is Σ_ij = c·B(sphere_i, bond i→j) ± c·B(sphere_j, bond j→i). The
-# naive path (`cache=false`) evaluates each directed-bond ACE basis twice (once per
-# ordered pair that uses it); the cached path (`cache=true`, the default) memoises the
-# per-directed-bond evaluation and reuses it, halving the ACE work. This script first
-# asserts the two paths agree numerically, then times `matrix` and `basis` for both.
+# naive path (`cache=false`) evaluates each directed bond twice (once per ordered pair
+# that uses it), each time from a fresh per-centre state; the default path
+# (`cache=true`) walks the centres once, shares each centre's neighbour data and
+# factorised per-centre tensor across all its bonds, and evaluates every directed bond
+# exactly once. This script first asserts the two paths agree numerically, then times
+# `matrix` and `basis` for both. (See bench_evaluation.jl for all coupling schemes.)
 
 using ACEfriction, LinearAlgebra, SparseArrays, StaticArrays
 using ACEfriction.FrictionModels

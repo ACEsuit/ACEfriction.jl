@@ -146,6 +146,26 @@ function _rn(b::SpeciesRadialBasis, r::Real)
 end
 
 """
+    _radial_rows(rbasis, rs) -> RN
+
+`RN[j, n] = Pₙ(x(rⱼ))·env(x(rⱼ))`, the species-independent part of the radial
+embedding (the species only selects the channel block). One batched polynomial
+evaluation: calling `P4ML.evaluate(polys, x)` per scalar `x` allocates and is ~20x
+slower.
+"""
+function _radial_rows(b::SpeciesRadialBasis, rs::AbstractVector)
+   xs = map(b.trans, rs)
+   RN = P4ML.evaluate(b.polys, xs)
+   @inbounds for j in eachindex(xs)
+      e = env_val(b.env, xs[j])
+      for n in axes(RN, 2)
+         RN[j, n] *= e
+      end
+   end
+   return RN
+end
+
+"""
     evaluate_batched(basis, rs, Zs) -> Rnl
 
 `Rnl[j, ñ] = δ_{z(ñ), Zⱼ} · Pₙ(ñ)(x(rⱼ)) · env(x(rⱼ))`, a
@@ -155,13 +175,13 @@ function evaluate_batched(b::SpeciesRadialBasis, rs::AbstractVector, Zs::Abstrac
    @assert length(rs) == length(Zs)
    T = promote_type(eltype(rs), Float64)
    Rnl = zeros(T, length(rs), nchannels(b))
+   isempty(rs) && return Rnl
+   RN = _radial_rows(b, rs)
    nR = b.nR
    @inbounds for j in eachindex(rs)
-      iz = _z2i(b, Zs[j])
-      rn = _rn(b, rs[j])
-      off = (iz - 1) * nR
+      off = (_z2i(b, Zs[j]) - 1) * nR
       for n in 1:nR
-         Rnl[j, off + n] = rn[n]
+         Rnl[j, off + n] = RN[j, n]
       end
    end
    return Rnl

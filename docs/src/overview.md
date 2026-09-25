@@ -81,13 +81,55 @@ In both cases the resulting ${\bm \Gamma}$ is symmetric positive semi-definite, 
 
 The local environment entering each block is delimited by a cutoff:
 
-- **`SphericalCutoff(rcut)`** — used for onsite blocks and for the atom-centred offsite blocks of `CWCMatrixModel`: the environment of $i$ is $\mathcal{N}_i = \{\,k : \|{\bm r}_{ik}\| \le r_{\rm cut}\,\}$, and for a pair $(i,j)$ the bond partner is $j\in\mathcal{N}_i$.
+- **`SphericalCutoff(rcut; partner_in_env=true)`** — used for onsite blocks and for the atom-centred offsite blocks of `CWCMatrixModel` and `PWCMatrixModel`: the environment of $i$ is $\mathcal{N}_i = \{\,k : \|{\bm r}_{ik}\| \le r_{\rm cut}\,\}$, and for a pair $(i,j)$ the bond partner is $j\in\mathcal{N}_i$. By default (`partner_in_env=true`) the environment features of the bond $(i,j)$ are pooled over all of $\mathcal{N}_i$, the partner included; with `partner_in_env=false` they are pooled over $\mathcal{N}_i\setminus\{j\}$ (the original convention; models saved before this option existed use it). See [Evaluation cost](@ref evaluation-cost) for why the latter is much cheaper to evaluate.
 - **`EllipsoidCutoff(rcutbond, rcutenv, zcutenv)`** — a bond-centred ellipsoidal environment for `PWCMatrixModel`: bonds with $\|{\bm r}_{ij}\|\le r_{\rm cut}^{\rm bond}$, and environment atoms inside $(z/z_{\rm cut}^{\rm env})^2 + (r/r_{\rm cut}^{\rm env})^2 \le 1$ around the bond midpoint ($z$ along the bond, $r$ perpendicular).
-- **`SnowManCutoff(rcut, symmetry)`** — an atom-centred alternative for the pair model: the block of $(i,j)$ combines the ACE basis evaluated on the spherical environment of $i$ (bond $i\to j$) and of $j$ (bond $j\to i$),
+- **`SnowManCutoff(rcut, symmetry; partner_in_env=true)`** — an atom-centred alternative for the pair model: the block of $(i,j)$ combines the ACE basis evaluated on the spherical environment of $i$ (bond $i\to j$) and of $j$ (bond $j\to i$),
   ```math
   {\bm \Sigma}_{ij} = c\cdot B(\text{sphere}_i, i\to j) \;\pm\; c\cdot B(\text{sphere}_j, j\to i),
   ```
   with the sign set by `symmetry` (`:symmetric` $\to +$, giving ${\bm \Sigma}_{ij}={\bm \Sigma}_{ji}$; `:antisymmetric` $\to -$, giving ${\bm \Sigma}_{ij}=-{\bm \Sigma}_{ji}$).
+
+## [Evaluation cost](@id evaluation-cost)
+
+Evaluating a fitted model never materialises the individual basis functions: the
+linear coefficients, the symmetrisation (coupling) matrices and the spherical-to-Cartesian
+maps are folded into a single weight per product feature once, and each block is then
+one fused pass over the product features of its environment. For the onsite blocks this
+makes a friction evaluation cost the same order as an ACE energy on the same basis
+(radial and angular embeddings, pooling, and one pass over the product basis).
+
+For the atom-centred pair blocks the neighbour data of a centre (radial and angular
+embeddings, pooled features) are computed once and shared by all bonds of that centre.
+With the partner-excluded convention (`partner_in_env=false`) the fused pass must still
+be repeated for every bond, because each bond sees a different environment. With the
+default `partner_in_env=true` every bond of a centre sees the same environment, and since every
+bond basis function contains exactly one bond factor the blocks factorise as
+```math
+{\bm \Sigma}_{ij} = {\bm T}_i\,\varphi({\bm r}_{ij}),
+```
+where ${\bm T}_i$ is computed once per centre (one fused pass) and
+$\varphi({\bm r}_{ij})$ are the one-particle features of the bond. All pair blocks of a
+centre then cost about as much as its onsite block, so the whole friction tensor is
+within a small factor of an energy evaluation. The two conventions are different bases
+(spanning the same function space): a model must be evaluated with the convention it was
+fitted with (the setting is stored with the model). In fits to H/Cu reference data both
+conventions reached the same accuracy; they coincide exactly when the partner's species is
+excluded from the environment factors, and for the antisymmetric `SnowManCutoff` at
+`maxorder = 2`.
+
+The un-contracted basis used for fitting (`basis`, `flux_assemble`) factorises in the
+same way: with the partner in the environment every basis function of a bond is a
+short sum of per-centre coefficients times the one-particle features of the bond, so
+assembling the fitting data does not evaluate a product basis per bond either.
+
+The weight columns are sparse in their Cartesian components (a product feature feeds
+only two or three of the nine components of a $3\times 3$ block), and the fused pass
+only touches the nonzero ones. All derived data (fused weights, sparsity layout,
+factorisations) is built lazily on first use and rebuilt automatically after
+`set_params!`; a model used only for fitting never builds the fused weights.
+
+The bond-centred `EllipsoidCutoff` transforms the environment differently for every
+bond, so it cannot share per-centre data; its cost remains one fused pass per bond.
 
 ## [Model fitting](@id model-fitting)
 

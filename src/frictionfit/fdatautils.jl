@@ -23,7 +23,10 @@ function _tensor_Gamma(A::SparseMatrixCSC{SMatrix{3,3,T,9},Ti},fi) where {T<:Rea
     end
     return Γt
 end
-function _tensor_basis(B::Vector{<:AbstractMatrix{SVector{3,T}}}, fi, ::Type{TM}) where {T<:Real, TM<:CWCMatrixModel}
+# layout of the fitting data by the model's Σ structure (see `sigma_structure`)
+_tensor_basis(B, fi, ::Type{TM}) where {TM<:MatrixModel} = _tensor_basis(B, fi, sigma_structure(TM))
+
+function _tensor_basis(B::Vector{<:AbstractMatrix{SVector{3,T}}}, fi, ::FullSigma) where {T<:Real}
     K = length(B)
     Bt = zeros(T,3,length(fi),length(fi),K)
     for (k,b) in enumerate(B)
@@ -36,7 +39,7 @@ function _tensor_basis(B::Vector{<:AbstractMatrix{SVector{3,T}}}, fi, ::Type{TM}
     return Bt
 end
 
-function _tensor_basis(B::Vector{<:AbstractMatrix{SMatrix{3,3,T,9}}}, fi, ::Type{TM}) where {T<:Real, TM<:CWCMatrixModel}
+function _tensor_basis(B::Vector{<:AbstractMatrix{SMatrix{3,3,T,9}}}, fi, ::FullSigma) where {T<:Real}
     K = length(B)
     Bt = zeros(T,3,3,length(fi),length(fi),K)
     for (k,b) in enumerate(B)
@@ -49,7 +52,7 @@ function _tensor_basis(B::Vector{<:AbstractMatrix{SMatrix{3,3,T,9}}}, fi, ::Type
     return Bt
 end
 
-function _tensor_basis(B::Vector{SparseMatrixCSC{SVector{3,T},Ti}}, fi, ::Type{TM}) where {T<:Real,Ti<:Int, TM<:PWCMatrixModel}
+function _tensor_basis(B::Vector{SparseMatrixCSC{SVector{3,T},Ti}}, fi, ::PairSigma) where {T<:Real,Ti<:Int}
     K = length(B)
     Bt = zeros(T,3,length(fi),length(fi),K)
     for (k,b) in enumerate(B)
@@ -62,7 +65,7 @@ function _tensor_basis(B::Vector{SparseMatrixCSC{SVector{3,T},Ti}}, fi, ::Type{T
     return Bt
 end
 
-function _tensor_basis(B::Vector{SparseMatrixCSC{SMatrix{3,3,T,9},Ti}}, fi, ::Type{<:PWCMatrixModel}) where {T<:Real,Ti<:Int}
+function _tensor_basis(B::Vector{SparseMatrixCSC{SMatrix{3,3,T,9},Ti}}, fi, ::PairSigma) where {T<:Real,Ti<:Int}
     K = length(B)
     Bt = zeros(T,3,3,length(fi),length(fi),K)
 
@@ -76,7 +79,7 @@ function _tensor_basis(B::Vector{SparseMatrixCSC{SMatrix{3,3,T,9},Ti}}, fi, ::Ty
     return Bt
 end
 
-function _tensor_basis(B::Vector{<:Diagonal{SVector{3,T}}}, fi, ::Type{<:OnsiteOnlyMatrixModel}) where {T<:Real}
+function _tensor_basis(B::Vector{<:Diagonal{SVector{3,T}}}, fi, ::DiagonalSigma) where {T<:Real}
     K = length(B)
     n = length(fi)
     B_diag = zeros(T,3,n,K)
@@ -88,7 +91,7 @@ function _tensor_basis(B::Vector{<:Diagonal{SVector{3,T}}}, fi, ::Type{<:OnsiteO
     return B_diag
 end
 
-function _tensor_basis(B::Vector{<:Diagonal{SMatrix{3,3,T,9}}}, fi, ::Type{<:OnsiteOnlyMatrixModel}) where {T<:Real}
+function _tensor_basis(B::Vector{<:Diagonal{SMatrix{3,3,T,9}}}, fi, ::DiagonalSigma) where {T<:Real}
     K = length(B)
     n = length(fi)
     B_diag = zeros(T,3,3,n,K)

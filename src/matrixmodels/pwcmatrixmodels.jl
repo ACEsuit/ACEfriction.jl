@@ -12,40 +12,62 @@ struct PWCMatrixModel{O3S, CUTOFF, Z2S, SC} <: MatrixModel{O3S}
 end
 
 _get_SC(::PWCMatrixModel{O3S, TM, Z2S, SC}) where {O3S, Z2S, TM, SC} = SC
+sigma_structure(::Type{<:PWCMatrixModel}) = PairSigma()
 _offsite_cutoff(offsite::OffSiteModels) = first(values(offsite)).cutoff
 
 # ---- Σ assembly (ellipsoid: bond iterator) ----
 function matrix(M::PWCMatrixModel{O3S, <:EllipsoidCutoff, Z2S, SC}, at::AbstractSystem;
                 filter=(_,_)->true, T=Float64) where {O3S, Z2S, SC}
+    _refresh!(M)
+    return _pwc_ellipsoid_matrix(M.offsite, SC, M.self_images, M.n_rep, at, filter, T)
+end
+
+function _pwc_ellipsoid_matrix(offsite::AbstractDict, ::Type{SC}, self_images, n_rep::Int, at, filter,
+                               ::Type{T}) where {SC, T}
     N = length(at); Z = _species(at)
-    Is = [Int[] for _=1:M.n_rep]; Js = [Int[] for _=1:M.n_rep]
-    Vs = [_block_type(M,T)[] for _=1:M.n_rep]
-    for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(M.offsite))
-        (filter(i, at) && filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-        (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-        Σij = evaluate(M.offsite[(Zi, Zj)], rrij, Rs, Zs)
-        for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
+    Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]
+    Vs = [ Vector{block_type(first(values(offsite)).basis, T)}() for _=1:n_rep ]
+    wss = _workspace_cache(offsite)
+    for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(offsite))
+        (filter(i, at) && filter(j, at) && _keep_partner(self_images, i, j)) || continue
+        (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
+        om = offsite[(Zi, Zj)]
+        Σij = evaluate!(_workspace!(wss, (Zi, Zj), om), om, rrij, Rs, Zs)
+        for r = 1:n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
     end
-    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:M.n_rep ]
+    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]
 end
 
 # ---- Σ assembly (spherical: site iterator, bond = marked neighbour j) ----
+# The bonds of a centre share one per-centre bond state (radial / Ylm / A once per
+# centre); see etbackend/fasteval.jl.
 function matrix(M::PWCMatrixModel{O3S, <:SphericalCutoff, Z2S, SC}, at::AbstractSystem;
                 filter=(_,_)->true, T=Float64) where {O3S, Z2S, SC}
+    _refresh!(M)
+    return _pwc_matrix(M.offsite, SC, M.self_images, M.n_rep, at, filter, T)
+end
+
+# function barrier: `offsite` / `self_images` arrive concretely typed (the model
+# fields are abstractly typed), so the per-bond calls dispatch statically.
+function _pwc_matrix(offsite::AbstractDict, ::Type{SC}, self_images, n_rep::Int, at, filter,
+                     ::Type{T}) where {SC, T}
     N = length(at); Z = _species(at)
-    Is = [Int[] for _=1:M.n_rep]; Js = [Int[] for _=1:M.n_rep]
-    Vs = [_block_type(M,T)[] for _=1:M.n_rep]
-    for (i, neigs, Rs) in _sites(at, env_cutoff(M.offsite))
+    Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]
+    Vs = [ Vector{block_type(first(values(offsite)).basis, T)}() for _=1:n_rep ]
+    ctrs = _centre_cache(offsite)
+    for (i, neigs, Rs) in _sites(at, env_cutoff(offsite))
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
         for (j_loc, j) in enumerate(neigs)
-            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-            Σij = evaluate(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
-            for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
+            (filter(j, at) && _keep_partner(self_images, i, j)) || continue
+            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
+            om = offsite[(Zi, Zj)]
+            ctr = _get_centre!(ctrs, om, (Zi, Zj), i, Rs, Zs)
+            Σij = bond_sigma(om.fast, ctr, j_loc; partner_in_env = _partner_in_env(om))
+            for r = 1:n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
         end
     end
-    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:M.n_rep ]
+    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]
 end
 
 # ---- Σ assembly (snowman: symmetrised over both bond ends) ----
@@ -73,109 +95,172 @@ function _reverse_loc(neigs_j::Vector{Int}, Rs_j::Vector{<:SVector{3}}, i::Int, 
     return nothing
 end
 
-# Walk every assembled snowman pair (i,j) exactly once, invoking
-# `f(i, j, zz, om, Bij, Bji)` with `zz=(Zi,Zj)`, `om=M.offsite[zz]`, and the two
-# per-centre basis vectors `Bij = B(sphere_i, bond i→j)`, `Bji = B(sphere_j, bond j→i)`.
-#
-# With `cache=true` the per-directed-bond ACE evaluation is memoised by
-# `(centre, local_index)` so each directed bond is evaluated only once (it is reused
-# as `Bij` of pair (i,j) and as `Bji` of pair (j,i)). The basis evaluation is
-# species-pair-independent (all offsite models share `bb`/`cutoff`), so a single cache
-# is valid across all pairs. The key is image-specific (a local neighbour index, not
-# an atom pair), which is what makes it correct under periodic boundary conditions.
-# With `cache=false` each `Bij`/`Bji` is evaluated on demand (the original two-eval
-# path), preserved for cross-checking / benchmarking.
-function _foreach_snowman_pair(f, M::PWCMatrixModel{O3S, <:SnowManCutoff, Z2S, SC},
-                               at::AbstractSystem; filter=(_,_)->true, cache::Bool=true) where {O3S, Z2S, SC}
-    N = length(at); Z = _species(at)
-    nb = _site_nb_table(at, env_cutoff(M.offsite))
-    BT = block_type(first(values(M.offsite)).basis)
-    store = Dict{Tuple{Int,Int}, Vector{BT}}()
-    # per-centre directed-bond basis evaluation, optionally memoised
-    getB(c::Int, loc::Int, om) = begin
+# Directed-bond values of the snowman pairs, computed centre by centre. For each centre
+# `c` the per-centre state is built once (one reusable state per species-pair model,
+# refilled for every centre) and the values of all directed bonds c→n that an
+# assembled pair needs are evaluated with `evalV(om, ctr, loc)` and stored. A directed
+# bond c→n is needed under the model of pair (c,n) (as its first end) and under the
+# model of pair (n,c) (as that pair's reverse end); the two differ only under
+# `SpeciesUnCoupled`. Only the values are kept, i.e. O(#bonds) memory, never the
+# per-centre states. `per_model = false` stores one value per directed bond (basis
+# vectors do not depend on the coefficients; all offsite models share the basis).
+# Keys are (centre, local neighbour index, model): image-specific, hence correct
+# under periodic boundary conditions.
+function _snowman_bond_values(offsite::AbstractDict, ::Type{SC}, self_images::SelfImagePolicy,
+                              at::AbstractSystem, filter, nb, Z, mode::Symbol, evalV,
+                              ::Type{VT}, per_model::Bool) where {SC, VT}
+    store = Dict{Tuple{Int,Int,Tuple{Int,Int}}, VT}()
+    ctrs = _centre_cache(offsite)
+    for c = 1:length(at)
+        (haskey(nb, c) && filter(c, at)) || continue
         (neigs_c, Rs_c) = nb[c]
-        cache ? get!(() -> evaluate_basis(om, loc, Rs_c, Z[neigs_c]), store, (c, loc)) :
-                evaluate_basis(om, loc, Rs_c, Z[neigs_c])
+        Zs_c = Z[neigs_c]
+        for (loc, n) in enumerate(neigs_c)
+            (filter(n, at) && _keep_partner(self_images, c, n)) || continue
+            for zz in (_mreduce(Z[c], Z[n], SC), _mreduce(Z[n], Z[c], SC))
+                haskey(offsite, zz) || continue
+                key = (c, loc, per_model ? zz : (0, 0))
+                haskey(store, key) && continue
+                om = offsite[zz]
+                store[key] = evalV(om, _get_centre!(ctrs, om, zz, c, Rs_c, Zs_c, mode), loc)
+            end
+        end
     end
-    for i = 1:N
+    return store
+end
+
+# Walk every assembled snowman pair (i,j) exactly once, invoking
+# `f(i, j, zz, om, Vij, Vji)` with `zz=(Zi,Zj)`, `om=offsite[zz]`, and the two
+# directed-bond values `Vij = V(sphere_i, bond i→j)`, `Vji = V(sphere_j, bond j→i)`
+# (both under the pair's model `om`), obtained from `getV(om, zz, centre, loc)`.
+function _foreach_snowman_pair(f, offsite::AbstractDict, ::Type{SC}, self_images::SelfImagePolicy,
+                               at::AbstractSystem, filter, nb, Z, getV) where {SC}
+    for i = 1:length(at)
         (haskey(nb, i) && filter(i, at)) || continue
         (neigs_i, Rs_i) = nb[i]
         for (j_loc, j) in enumerate(neigs_i)
             # filter before the reverse-bond lookup: also skips self-image bonds (j==i)
             # under ExcludeSelfImages, which have no well-defined reverse end.
-            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-            om = M.offsite[(Zi, Zj)]
-            Bij = getB(i, j_loc, om)                                   # sphere at i, bond i→j
+            (filter(j, at) && _keep_partner(self_images, i, j)) || continue
+            zz = _mreduce(Z[i], Z[j], SC); haskey(offsite, zz) || continue
+            om = offsite[zz]
             (neigs_j, Rs_j) = nb[j]
             i_loc = _reverse_loc(neigs_j, Rs_j, i, Rs_i[j_loc])
             i_loc === nothing && error("snowman: reverse bond ($j,$i) not found")
-            Bji = getB(j, i_loc, om)                                   # sphere at j, bond j→i
-            f(i, j, (Zi, Zj), om, Bij, Bji)
+            f(i, j, zz, om, getV(om, zz, i, j_loc), getV(om, zz, j, i_loc))
         end
     end
     return nothing
 end
 
+# Shared driver of the snowman `matrix` / `basis`: with `cache = true` every directed
+# bond is evaluated once (streamed per centre, see `_snowman_bond_values`); with
+# `cache = false` each pair evaluates both of its ends from scratch (a fresh per-centre
+# state per evaluation; the naive reference path, kept for cross-checks).
+function _snowman_walk(f, offsite::AbstractDict, ::Type{SC}, self_images::SelfImagePolicy,
+                       at::AbstractSystem, filter, mode::Symbol, evalV, ::Type{VT},
+                       per_model::Bool, cache::Bool) where {SC, VT}
+    Z = _species(at)
+    nb = _site_nb_table(at, env_cutoff(offsite))
+    if cache
+        store = _snowman_bond_values(offsite, SC, self_images, at, filter, nb, Z, mode, evalV, VT, per_model)
+        getV = (om, zz, c, loc) -> store[(c, loc, per_model ? zz : (0, 0))]
+    else
+        getV = function (om, zz, c, loc)
+            (neigs_c, Rs_c) = nb[c]
+            ctr = bond_centre(om.fast, Rs_c, Z[neigs_c], om.cutoff.rcut;
+                              partner_in_env = _partner_in_env(om), mode = mode)
+            return evalV(om, ctr, loc)::VT
+        end
+    end
+    _foreach_snowman_pair(f, offsite, SC, self_images, at, filter, nb, Z, getV)
+    return nothing
+end
+
 function matrix(M::PWCMatrixModel{O3S, <:SnowManCutoff, Z2S, SC}, at::AbstractSystem;
                 filter=(_,_)->true, T=Float64, cache::Bool=true) where {O3S, Z2S, SC}
+    _refresh!(M)
+    return _snowman_matrix(M.offsite, SC, M.self_images, M.n_rep, at, filter, T, cache)
+end
+
+function _snowman_matrix(offsite::AbstractDict, ::Type{SC}, self_images, n_rep::Int, at, filter,
+                         ::Type{T}, cache::Bool) where {SC, T}
     N = length(at)
-    Is = [Int[] for _=1:M.n_rep]; Js = [Int[] for _=1:M.n_rep]
-    Vs = [_block_type(M,T)[] for _=1:M.n_rep]
-    _foreach_snowman_pair(M, at; filter=filter, cache=cache) do i, j, zz, om, Bij, Bji
-        Bcomb = _snowman_combine.(Ref(om.cutoff), Bij, Bji)            # combine then contract
-        Σ = _contract(om, Bcomb)
-        for r = 1:M.n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σ[r]); end
+    Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]
+    Vs = [ Vector{block_type(first(values(offsite)).basis, T)}() for _=1:n_rep ]
+    evalΣ(om, ctr, loc) = bond_sigma(om.fast, ctr, loc; partner_in_env = _partner_in_env(om))
+    VT = SVector{n_rep, block_type(first(values(offsite)).basis)}
+    # contracted values depend on the pair's model -> memoised per model
+    _snowman_walk(offsite, SC, self_images, at, filter, :sigma, evalΣ, VT, true, cache) do i, j, zz, om, Σij, Σji
+        Σ = _snowman_combine.(Ref(om.cutoff), Σij, Σji)                # combine the two bond ends
+        for r = 1:n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σ[r]); end
     end
-    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:M.n_rep ]
+    return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]
 end
 
 # ---- un-contracted basis (ellipsoid) ----
 function basis(M::PWCMatrixModel{O3S, <:EllipsoidCutoff, Z2S, SC}, at::AbstractSystem;
                join_sites=false, filter=(_,_)->true, T=Float64) where {O3S, Z2S, SC}
-    N = length(at); Z = _species(at); K = length(M.inds, :offsite)
-    Is = [Int[] for _=1:K]; Js = [Int[] for _=1:K]; Vs = [_block_type(M,T)[] for _=1:K]
-    for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(M.offsite))
-        (filter(i, at) && filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-        (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-        Bij = evaluate_basis(M.offsite[(Zi, Zj)], rrij, Rs, Zs)
-        for (k, b) in zip(get_range(M, (Zi, Zj)), Bij); push!(Is[k], i); push!(Js[k], j); push!(Vs[k], b); end
-    end
-    B = [ sparse(Is[k], Js[k], Vs[k], N, N) for k = 1:K ]
+    B = _pwc_ellipsoid_basis(M.offsite, SC, M.self_images, M.inds, at, filter, T)
     return (join_sites ? B : (offsite = B,))
+end
+
+function _pwc_ellipsoid_basis(offsite::AbstractDict, ::Type{SC}, self_images, inds::SiteInds, at, filter,
+                              ::Type{T}) where {SC, T}
+    N = length(at); Z = _species(at); K = length(inds, :offsite)
+    acc = _BasisAccum{Tuple{Int,Int}, block_type(first(values(offsite)).basis, T)}()
+    for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(offsite))
+        (filter(i, at) && filter(j, at) && _keep_partner(self_images, i, j)) || continue
+        (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
+        _accum!(acc, (Zi, Zj), i, j, evaluate_basis(offsite[(Zi, Zj)], rrij, Rs, Zs))
+    end
+    return _assemble(acc, zz -> get_range(inds, zz), K, N)
 end
 
 # ---- un-contracted basis (spherical) ----
 function basis(M::PWCMatrixModel{O3S, <:SphericalCutoff, Z2S, SC}, at::AbstractSystem;
                join_sites=false, filter=(_,_)->true, T=Float64) where {O3S, Z2S, SC}
-    N = length(at); Z = _species(at); K = length(M.inds, :offsite)
-    Is = [Int[] for _=1:K]; Js = [Int[] for _=1:K]; Vs = [_block_type(M,T)[] for _=1:K]
-    for (i, neigs, Rs) in _sites(at, env_cutoff(M.offsite))
+    B = _pwc_basis(M.offsite, SC, M.self_images, M.inds, at, filter, T)
+    return (join_sites ? B : (offsite = B,))
+end
+
+function _pwc_basis(offsite::AbstractDict, ::Type{SC}, self_images, inds::SiteInds, at, filter,
+                    ::Type{T}) where {SC, T}
+    N = length(at); Z = _species(at); K = length(inds, :offsite)
+    acc = _BasisAccum{Tuple{Int,Int}, block_type(first(values(offsite)).basis, T)}()
+    ctrs = _centre_cache(offsite)
+    for (i, neigs, Rs) in _sites(at, env_cutoff(offsite))
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
         for (j_loc, j) in enumerate(neigs)
-            (filter(j, at) && _keep_partner(M.self_images, i, j)) || continue
-            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(M.offsite, (Zi, Zj)) || continue
-            Bij = evaluate_basis(M.offsite[(Zi, Zj)], j_loc, Rs, Zs)
-            for (k, b) in zip(get_range(M, (Zi, Zj)), Bij); push!(Is[k], i); push!(Js[k], j); push!(Vs[k], b); end
+            (filter(j, at) && _keep_partner(self_images, i, j)) || continue
+            (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
+            om = offsite[(Zi, Zj)]
+            ctr = _get_centre!(ctrs, om, (Zi, Zj), i, Rs, Zs, :basis)
+            _accum!(acc, (Zi, Zj), i, j, bond_basis_blocks(om.fast, ctr, j_loc; partner_in_env = _partner_in_env(om)))
         end
     end
-    B = [ sparse(Is[k], Js[k], Vs[k], N, N) for k = 1:K ]
-    return (join_sites ? B : (offsite = B,))
+    return _assemble(acc, zz -> get_range(inds, zz), K, N)
 end
 
 # ---- un-contracted basis (snowman: combine both bond-end spherical evaluations) ----
 function basis(M::PWCMatrixModel{O3S, <:SnowManCutoff, Z2S, SC}, at::AbstractSystem;
                join_sites=false, filter=(_,_)->true, T=Float64, cache::Bool=true) where {O3S, Z2S, SC}
-    N = length(at); K = length(M.inds, :offsite)
-    Is = [Int[] for _=1:K]; Js = [Int[] for _=1:K]; Vs = [_block_type(M,T)[] for _=1:K]
-    _foreach_snowman_pair(M, at; filter=filter, cache=cache) do i, j, zz, om, Bij, Bji
-        for (k, b1, b2) in zip(get_range(M, zz), Bij, Bji)
-            push!(Is[k], i); push!(Js[k], j); push!(Vs[k], _snowman_combine(om.cutoff, b1, b2))
-        end
-    end
-    B = [ sparse(Is[k], Js[k], Vs[k], N, N) for k = 1:K ]
+    B = _snowman_basis(M.offsite, SC, M.self_images, M.inds, at, filter, T, cache)
     return (join_sites ? B : (offsite = B,))
+end
+
+function _snowman_basis(offsite::AbstractDict, ::Type{SC}, self_images, inds::SiteInds, at, filter,
+                        ::Type{T}, cache::Bool) where {SC, T}
+    N = length(at); K = length(inds, :offsite)
+    acc = _BasisAccum{Tuple{Int,Int}, block_type(first(values(offsite)).basis, T)}()
+    evalB(om, ctr, loc) = bond_basis_blocks(om.fast, ctr, loc; partner_in_env = _partner_in_env(om))
+    VT = Vector{block_type(first(values(offsite)).basis)}
+    # basis vectors are model independent -> one stored value per directed bond
+    _snowman_walk(offsite, SC, self_images, at, filter, :basis, evalB, VT, false, cache) do i, j, zz, om, Bij, Bji
+        _accum!(acc, zz, i, j, map((b1, b2) -> _snowman_combine(om.cutoff, b1, b2), Bij, Bji))
+    end
+    return _assemble(acc, zz -> get_range(inds, zz), K, N)
 end
 
 # Pairwise random force. Each bond {i,j} carries one shared noise `w` and contributes

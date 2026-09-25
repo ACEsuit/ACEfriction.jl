@@ -10,6 +10,7 @@ using Base
 using ACEfriction
 import ACEfriction.MatrixModels: params, nparams, set_params!, scaling
 import ACEfriction.MatrixModels: set_zero!, randf
+import ACEfriction.MatrixModels: sigma_structure, FullSigma, PairSigma, DiagonalSigma
 import ACEfriction.ETBackend: write_dict, read_dict
 
 export write_dict, read_dict, params, nparams, set_params!
@@ -202,9 +203,10 @@ function Gamma(M::MatrixModel, Σ_vec)
 end
 
 
-_square(Σ, ::MatrixModel) = Σ*transpose(Σ)
+_square(Σ, M::MatrixModel) = _square(Σ, sigma_structure(M))
+_square(Σ, ::Union{FullSigma, DiagonalSigma}) = Σ*transpose(Σ)
 
-function _square(Σ::SparseMatrixCSC{Tv,Ti}, ::PWCMatrixModel) where {Tv, Ti}
+function _square(Σ::SparseMatrixCSC{Tv,Ti}, ::PairSigma) where {Tv, Ti}
     nvals = 2*length(Σ.nzval) #+ length(Σ.m)
     Is, Js, Vs = findnz(Σ)
     I, J, V = Ti[],Ti[],SMatrix{3, 3,eltype(Tv), 9}[]

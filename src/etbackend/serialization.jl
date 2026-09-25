@@ -58,15 +58,21 @@ write_dict(b::ETFrictionSiteBasis) =
 read_dict(::Val{:ETBackend_SiteBasis}, D::AbstractDict) = rebuild_basis(D["recipe"])
 
 # ---- cutoffs ----
+# `partner_in_env` was added later; dicts without the key are the original
+# partner-excluded environment (default false).
 write_dict(c::SphericalCutoff) =
-      Dict{String,Any}("__id__" => "ETBackend_SphericalCutoff", "rcut" => c.rcut)
-read_dict(::Val{:ETBackend_SphericalCutoff}, D::AbstractDict) = SphericalCutoff(Float64(D["rcut"]))
+      Dict{String,Any}("__id__" => "ETBackend_SphericalCutoff", "rcut" => c.rcut,
+                       "partner_in_env" => c.partner_in_env)
+read_dict(::Val{:ETBackend_SphericalCutoff}, D::AbstractDict) =
+      SphericalCutoff(Float64(D["rcut"]); partner_in_env = Bool(get(D, "partner_in_env", false)))
 
 write_dict(c::SnowManCutoff) =
       Dict{String,Any}("__id__" => "ETBackend_SnowManCutoff", "rcut" => c.rcut,
-                       "symmetry" => String(symmetry(c)))
+                       "symmetry" => String(symmetry(c)),
+                       "partner_in_env" => c.partner_in_env)
 read_dict(::Val{:ETBackend_SnowManCutoff}, D::AbstractDict) =
-      SnowManCutoff(Float64(D["rcut"]), Symbol(get(D, "symmetry", "symmetric")))
+      SnowManCutoff(Float64(D["rcut"]), Symbol(get(D, "symmetry", "symmetric"));
+                    partner_in_env = Bool(get(D, "partner_in_env", false)))
 
 write_dict(c::EllipsoidCutoff) =
       Dict{String,Any}("__id__" => "ETBackend_EllipsoidCutoff",

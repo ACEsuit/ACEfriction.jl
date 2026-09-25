@@ -15,9 +15,12 @@ using ACEfriction.mUtils: reinterpret
 import ACEfriction.ETBackend
 import ACEfriction.ETBackend: ETInvariant, ETVector, ETMatrix, ETSymMatrix, ETProperty,
        onsite_basis, bond_basis, evaluate_bond,
-       SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _snowman_combine,
+       SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _snowman_combine, partner_in_env,
        ellipsoid_env_transform, spherical_bond_transform, et_bonds, env_cutoff,
        _atomic_number, _chemical_symbol, block_type, output_LL
+# fast (coefficient-contracted, per-centre) evaluators — see etbackend/fasteval.jl
+import ACEfriction.ETBackend: ETFastModel, refresh!, ETBondCentre, bond_centre, bond_centre!,
+       bond_sigma, bond_basis_blocks, centre_type, ETSiteData
 import ACEfriction.ETBackend: write_dict, read_dict
 
 export MatrixModel, CWCMatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
@@ -28,6 +31,12 @@ export Odd, Even, NoZ2Sym, SpeciesCoupled, SpeciesUnCoupled
 export NeighborCentered, AtomCentered
 export SelfImagePolicy, ExcludeSelfImages, IncludeSelfImages
 export matrix, basis, params, nparams, set_params!, set_zero!, get_id, randf
+
+# Extension API (public, not exported): what a matrix-model type defined in another
+# package needs; see the section "Extension API" below and docs/src/extending.md.
+public SigmaStructure, FullSigma, PairSigma, DiagonalSigma, sigma_structure,
+       offsite_models, site_inds, offsite_matrix, offsite_basis, n_rep, default_id,
+       self_image_policy, OnSiteModels, OffSiteModels, SiteInds
 
 # ---------------------------------------------------------------------------
 # markers
@@ -105,30 +114,39 @@ Base.length(bb::BondBasis) = length(bb.basis)
 
 abstract type SiteModel end
 
-struct OnSiteModel{O3S, NR, TB} <: SiteModel
+# Every site model carries a coefficient-contracted fast evaluator (`fast`) built on
+# its basis. Its fused weights are a function of `c`; `set_params!` refreshes them
+# and the assembly loops call `_fast(m)` once per site model per call, which
+# re-syncs iff `c` was mutated behind the model's back (e.g. through `params(m)`).
+
+struct OnSiteModel{O3S, NR, TB, TF} <: SiteModel
    basis::TB
    c::Vector{SVector{NR, Float64}}
    cutoff::SphericalCutoff{Float64}
+   fast::TF
 end
 function OnSiteModel(basis::TB, cutoff::SphericalCutoff, c::Vector{SVector{NR,Float64}}) where {TB, NR}
    @assert length(basis) == length(c)
    O3S = _o3sym(basis.property)
-   return OnSiteModel{O3S, NR, TB}(basis, c, SphericalCutoff{Float64}(cutoff.rcut))
+   fast = ETFastModel(basis, c)
+   return OnSiteModel{O3S, NR, TB, typeof(fast)}(basis, c, SphericalCutoff{Float64}(cutoff.rcut), fast)
 end
 OnSiteModel(basis, cutoff::SphericalCutoff, n_rep::Integer) =
       OnSiteModel(basis, cutoff, rand(SVector{n_rep, Float64}, length(basis)))
 OnSiteModel(basis, r_cut::Real, n_rep::Integer) =
       OnSiteModel(basis, SphericalCutoff(Float64(r_cut)), n_rep)
 
-struct OffSiteModel{O3S, Z2S, CUTOFF, NR, TB} <: SiteModel
+struct OffSiteModel{O3S, Z2S, CUTOFF, NR, TB, TF} <: SiteModel
    basis::TB
    c::Vector{SVector{NR, Float64}}
    cutoff::CUTOFF
+   fast::TF
 end
 function OffSiteModel(bb::BondBasis{TB, Z2S}, cutoff::CUTOFF, c::Vector{SVector{NR,Float64}}) where {TB, Z2S, CUTOFF, NR}
    @assert length(bb.basis) == length(c)
    O3S = _o3sym(bb.basis.property)
-   return OffSiteModel{O3S, Z2S, CUTOFF, NR, TB}(bb.basis, c, cutoff)
+   fast = ETFastModel(bb.basis, c)
+   return OffSiteModel{O3S, Z2S, CUTOFF, NR, TB, typeof(fast)}(bb.basis, c, cutoff, fast)
 end
 OffSiteModel(bb::BondBasis, cutoff, n_rep::Integer) =
       OffSiteModel(bb, cutoff, rand(SVector{n_rep, Float64}, length(bb.basis)))
@@ -144,7 +162,10 @@ _o3symmetry(::OffSiteModel{O3S}) where {O3S} = O3S
 Base.length(m::SiteModel) = length(m.basis)
 params(m::SiteModel) = m.c
 nparams(m::SiteModel) = length(m.c)
-set_params!(m::SiteModel, c) = (copyto!(m.c, c); m)
+set_params!(m::SiteModel, c) = (copyto!(m.c, c); refresh!(m.fast, m.c); m)
+
+"the site model's fast evaluator, re-synced with `m.c` if needed"
+_fast(m::SiteModel) = refresh!(m.fast, m.c)
 
 # contract ET basis blocks with the coefficients -> SVector{NR, block}
 function _contract(m::SiteModel, B)
@@ -156,8 +177,14 @@ function _contract(m::SiteModel, B)
    return SVector(Σ)
 end
 
+# The atom-centred bond cutoffs (Spherical / SnowMan) are the ones whose bonds share
+# a centre; `_partner_in_env(sm)` is the environment convention of the bond model.
+const AtomCentredCutoff = Union{SphericalCutoff, SnowManCutoff}
+_partner_in_env(sm::OffSiteModel) = partner_in_env(sm.cutoff)
+
+# ---- un-contracted basis (generic ET path; the fitting-path reference) ----
+
 # onsite: raw env vectors (radial transform handles rcut)
-evaluate(sm::OnSiteModel, Rs, Zs) = _contract(sm, ETBackend.evaluate(sm.basis, Rs, Zs))
 evaluate_basis(sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate(sm.basis, Rs, Zs)
 
 # offsite ellipsoid: bond vector + ellipsoid env
@@ -165,26 +192,147 @@ function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVect
    rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, sm.cutoff)
    return evaluate_bond(sm.basis, rbond, Rst, Zst)
 end
-evaluate(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S} =
-      _contract(sm, evaluate_basis(sm, rrij, Rs, Zs))
 
-# offsite spherical: atom-i neighbourhood + bond-partner local index
-function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:SphericalCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+# offsite spherical / snowman: atom-i neighbourhood + bond-partner local index. For
+# the snowman the two bond ends are combined at assembly time (pwcmatrixmodels.jl),
+# so the single-centre evaluation is the spherical one.
+function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:AtomCentredCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
    rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, sm.cutoff)
    return evaluate_bond(sm.basis, rbond, Rse, Zse)
 end
-evaluate(sm::OffSiteModel{O3S,Z2S,<:SphericalCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S} =
-      _contract(sm, evaluate_basis(sm, j_loc, Rs, Zs))
 
-# offsite snowman: single-centre spherical evaluation (same as spherical). The two
-# bond ends are combined at assembly time in pwcmatrixmodels.jl (Σ_ij = c·B(env_ij)
-# + c·B(env_ji)), so per-centre evaluation reuses the spherical transform.
-function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:SnowManCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
-   rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, sm.cutoff)
-   return evaluate_bond(sm.basis, rbond, Rse, Zse)
+# ---- contracted Σ blocks: fast evaluators ----
+
+# `evaluate` re-syncs the fused weights and uses a fresh workspace (safe to call
+# anywhere). The assembly loops refresh once per call (`_refresh!`) and use
+# `evaluate!` with a per-call workspace (`_workspace!`): workspaces are never stored
+# in the model, so concurrent `matrix` calls on one model do not share buffers.
+evaluate(sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate(_fast(sm), Rs, Zs)
+evaluate!(sd::ETSiteData, sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate!(sd, sm.fast, Rs, Zs)
+
+function evaluate(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S}
+   return evaluate!(ETSiteData(_fast(sm)), sm, rrij, Rs, Zs)
 end
-evaluate(sm::OffSiteModel{O3S,Z2S,<:SnowManCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S} =
-      _contract(sm, evaluate_basis(sm, j_loc, Rs, Zs))
+function evaluate!(sd::ETSiteData, sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3},
+                   Rs, Zs) where {O3S,Z2S}
+   rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, sm.cutoff)
+   return ETBackend.evaluate_bond!(sd, sm.fast, rbond, Rst, Zst)
+end
+
+# ---- un-contracted basis assembly with a shared sparsity pattern ----
+#
+# Every basis function of one site model (species / species pair) has an entry on
+# exactly the sites/bonds that model is assembled on. `_BasisAccum` collects, per
+# model key, the (i, j) of every site/bond and its vector of basis blocks; `_assemble`
+# then computes each model's sparsity pattern once (summing repeated (i, j), e.g.
+# several periodic images of one pair, as `sparse` does) and fills the values of each
+# basis function into it, instead of growing and sorting one (I, J, V) triplet list
+# per basis function (which dominated `basis` once the ACE evaluation got cheap).
+struct _BasisAccum{KEY, BT}
+   I::Dict{KEY, Vector{Int}}
+   J::Dict{KEY, Vector{Int}}
+   B::Dict{KEY, Vector{Vector{BT}}}
+end
+_BasisAccum{KEY, BT}() where {KEY, BT} =
+      _BasisAccum{KEY, BT}(Dict{KEY, Vector{Int}}(), Dict{KEY, Vector{Int}}(), Dict{KEY, Vector{Vector{BT}}}())
+
+function _accum!(acc::_BasisAccum{KEY, BT}, key, i::Int, j::Int, Bij::AbstractVector) where {KEY, BT}
+   push!(get!(Vector{Int}, acc.I, key), i)
+   push!(get!(Vector{Int}, acc.J, key), j)
+   push!(get!(Vector{Vector{BT}}, acc.B, key), Bij isa Vector{BT} ? Bij : Vector{BT}(Bij))
+   return acc
+end
+
+# CSC pattern of the entries (I[t], J[t]) with repeated positions merged; `dest[t]` is
+# the stored-entry index of entry t
+function _shared_pattern(I::Vector{Int}, J::Vector{Int}, N::Int)
+   p = sortperm(eachindex(I); by = t -> (J[t], I[t]))
+   colptr = zeros(Int, N + 1); rowval = Int[]; dest = zeros(Int, length(I))
+   prev = (0, 0)
+   for t in p
+      key = (J[t], I[t])
+      if key != prev
+         push!(rowval, I[t]); colptr[J[t] + 1] += 1; prev = key
+      end
+      dest[t] = length(rowval)
+   end
+   colptr[1] = 1
+   for c in 1:N; colptr[c + 1] += colptr[c]; end
+   return colptr, rowval, dest
+end
+
+"the `K` sparse basis matrices; `ranges(key)` = basis-function indices of model `key`"
+function _assemble(acc::_BasisAccum{KEY, BT}, ranges, K::Int, N::Int) where {KEY, BT}
+   B = Vector{SparseMatrixCSC{BT, Int}}(undef, K)
+   filled = falses(K)
+   for (key, Bs) in acc.B
+      colptr, rowval, dest = _shared_pattern(acc.I[key], acc.J[key], N)
+      for (t, k) in enumerate(ranges(key))
+         nz = zeros(BT, length(rowval))
+         @inbounds for e in eachindex(Bs)
+            nz[dest[e]] += Bs[e][t]
+         end
+         B[k] = SparseMatrixCSC(N, N, copy(colptr), copy(rowval), nz)
+         filled[k] = true
+      end
+   end
+   for k in 1:K
+      filled[k] || (B[k] = spzeros(BT, N, N))
+   end
+   return B
+end
+
+# per-call neighbour workspaces, one per site model (keyed like the model dict)
+_workspace_cache(models::AbstractDict{K}) where {K} = Dict{K, ETSiteData}()
+@inline function _workspace!(cache, key, m::SiteModel)
+   sd = get(cache, key, nothing)
+   if sd === nothing
+      sd = ETSiteData(m.fast)
+      cache[key] = sd
+   end
+   return sd
+end
+
+# single bond of an atom-centred model: per-centre state built for this call only.
+# The assembly loops use `bond_centre` / `bond_sigma` directly to share it.
+function evaluate(sm::OffSiteModel{O3S,Z2S,<:AtomCentredCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+   pie = _partner_in_env(sm)
+   ctr = bond_centre(_fast(sm), Rs, Zs, sm.cutoff.rcut; partner_in_env = pie)
+   return bond_sigma(sm.fast, ctr, Int(j_loc); partner_in_env = pie)
+end
+
+# ---- reference contraction through the generic basis (for cross-checks) ----
+evaluate_ref(sm::SiteModel, args...) = _contract(sm, evaluate_basis(sm, args...))
+
+# refresh the fast evaluators of all site models of a matrix model (once per call)
+function _refresh!(M)
+   for site in (:onsite, :offsite)
+      hasfield(typeof(M), site) || continue
+      for m in values(getfield(M, site)); _fast(m); end
+   end
+   return M
+end
+
+# Per-species-pair bond-model states, reused across all centres of one assembly
+# call: the state's `tag` records the centre it was last filled for, so a state is
+# (re)filled at most once per centre and its buffers are never reallocated.
+_centre_cache(offsite::AbstractDict) =
+      Dict{Tuple{Int,Int}, centre_type(first(values(offsite)).fast)}()
+
+# (explicit lookup rather than `get!` with a closure: the closure would capture and
+# heap-box the whole site model on every call)
+@inline function _get_centre!(cache, om::OffSiteModel, zz, i::Int, Rs, Zs, mode::Symbol = :sigma)
+   ctr = get(cache, zz, nothing)
+   if ctr === nothing
+      ctr = ETBondCentre(om.fast)
+      cache[zz] = ctr
+   end
+   if ctr.tag != i
+      bond_centre!(ctr, om.fast, Rs, Zs, om.cutoff.rcut; partner_in_env = _partner_in_env(om), mode = mode)
+      ctr.tag = i
+   end
+   return ctr
+end
 
 const OnSiteModels{O3S} = Dict{Int, <:OnSiteModel{O3S}}
 const OffSiteModels{O3S, Z2S, CUTOFF} = Dict{Tuple{Int,Int}, <:OffSiteModel{O3S, Z2S, CUTOFF}}
@@ -323,6 +471,126 @@ function scaling(mb::MatrixModel, p::Int)
       end
    end
    return scale
+end
+
+# ---------------------------------------------------------------------------
+# Extension API
+#
+# Matrix-model types can be defined outside this package as subtypes of
+# `MatrixModel`. Such a type needs
+#   * the fields `n_rep`, `inds::SiteInds`, `id`, and its site-model dictionaries
+#     `onsite` and/or `offsite` (read by the generic parameter plumbing: `params`,
+#     `set_params!`, `nparams`, `scaling`, ...);
+#   * methods for `matrix`, `basis`, `randf` and `write_dict` / `read_dict`;
+#   * a `sigma_structure` method if its friction tensor is not Γ = Σ Σᵀ of a general
+#     block matrix Σ (the default).
+# The functions below build atom-centred pair models and give access to their fast
+# per-centre assembly.
+
+"""
+    SigmaStructure
+
+How a matrix model's friction tensor is formed from its diffusion matrix Σ (per
+replica); selects the friction-tensor assembly and the layout of the fitting data:
+
+- `FullSigma()`: Γ = Σ Σᵀ with Σ a general sparse `N×N` block matrix (the default;
+  e.g. `CWCMatrixModel`);
+- `PairSigma()`: pairwise coupling, Γ_ij = Σ_ij Σ_jiᵀ (i ≠ j) and
+  Γ_ii = Σ_j Σ_ij Σ_ijᵀ (`PWCMatrixModel`);
+- `DiagonalSigma()`: block-diagonal Σ, Γ_ii = Σ_ii Σ_iiᵀ (`OnsiteOnlyMatrixModel`).
+"""
+abstract type SigmaStructure end
+struct FullSigma <: SigmaStructure end
+struct PairSigma <: SigmaStructure end
+struct DiagonalSigma <: SigmaStructure end
+
+"""
+    sigma_structure(::Type{<:MatrixModel}) -> SigmaStructure
+
+The [`SigmaStructure`](@ref) of a matrix-model type (default `FullSigma()`).
+"""
+sigma_structure(::Type{<:MatrixModel}) = FullSigma()
+sigma_structure(M::MatrixModel) = sigma_structure(typeof(M))
+
+"""
+    offsite_models(bb::BondBasis, cutoff, species_friction, n_rep;
+                   speciescoupling = SpeciesUnCoupled()) -> OffSiteModels
+
+One `OffSiteModel` (bond basis `bb`, `cutoff`, `n_rep` replicas, random
+coefficients) per species pair of `species_friction`: all ordered pairs for
+`SpeciesUnCoupled()`, unordered (sorted) pairs for `SpeciesCoupled()`.
+"""
+function offsite_models(bb::BondBasis, cutoff, species_friction, n_rep::Integer;
+                        speciescoupling::SpeciesCoupling = SpeciesUnCoupled())
+   pairs = [ _atomic_number.(zz) for zz in Base.Iterators.product(species_friction, species_friction) ]
+   speciescoupling isa SpeciesCoupled && (pairs = unique(_msort(zz...) for zz in pairs))
+   return Dict(zz => OffSiteModel(bb, cutoff, n_rep) for zz in pairs)
+end
+
+"""
+    site_inds(offsite) -> SiteInds
+    site_inds(onsite, offsite) -> SiteInds
+
+Basis-function index ranges of the site models (per species / species pair), in the
+order used by `params` / `basis`.
+"""
+site_inds(offsite::OffSiteModels) = SiteInds(_get_basisinds(offsite))
+site_inds(onsite::OnSiteModels, offsite::OffSiteModels) =
+      SiteInds(_get_basisinds(onsite), _get_basisinds(offsite))
+
+"""
+    n_rep(M::MatrixModel)
+    n_rep(models::Union{OnSiteModels, OffSiteModels})
+
+Number of replicas (independent linear maps per basis function).
+"""
+n_rep(M::MatrixModel) = _n_rep(M)
+n_rep(models::SiteModels) = _n_rep(models)
+
+"default model id for a block property (`:inv`, `:cov` or `:equ`)"
+default_id(property::ETProperty) = _default_id(_o3sym(property))
+
+"`IncludeSelfImages()` if `include` else `ExcludeSelfImages()`"
+self_image_policy(include::Bool) = include ? IncludeSelfImages() : ExcludeSelfImages()
+
+_check_atom_centred(offsite) =
+      all(m -> m.cutoff isa SphericalCutoff, values(offsite)) ||
+      throw(ArgumentError("atom-centred pair assembly requires offsite models with a SphericalCutoff"))
+
+"""
+    offsite_matrix(offsite, at; speciescoupling = SpeciesUnCoupled(),
+                   self_images = ExcludeSelfImages(), filter = (_, _) -> true, T = Float64)
+
+Atom-centred pair blocks of the offsite models `offsite` (`SphericalCutoff`) on the
+system `at`: one sparse `N×N` block matrix per replica whose block (i, j), for every
+neighbour j of i (subject to `filter` and `self_images`), is the block of the pair's
+model evaluated on the environment of i with bond partner j. The diagonal is empty
+unless periodic self-images are included. Uses the fast per-centre evaluation (all
+bonds of a centre share its neighbour data; see `SphericalCutoff`'s `partner_in_env`).
+"""
+function offsite_matrix(offsite::OffSiteModels, at::AbstractSystem;
+                        speciescoupling::SpeciesCoupling = SpeciesUnCoupled(),
+                        self_images::SelfImagePolicy = ExcludeSelfImages(),
+                        filter = (_, _) -> true, T = Float64)
+   _check_atom_centred(offsite)
+   for m in values(offsite); _fast(m); end
+   return _pwc_matrix(offsite, typeof(speciescoupling), self_images, _n_rep(offsite), at, filter, T)
+end
+
+"""
+    offsite_basis(offsite, at; inds = site_inds(offsite), speciescoupling = SpeciesUnCoupled(),
+                  self_images = ExcludeSelfImages(), filter = (_, _) -> true, T = Float64)
+
+Un-contracted counterpart of [`offsite_matrix`](@ref): one sparse `N×N` block matrix
+per basis function (index ranges `inds`), such that `Σ_k c[k][r] B[k]` is the
+`r`-th matrix of `offsite_matrix`.
+"""
+function offsite_basis(offsite::OffSiteModels, at::AbstractSystem; inds::SiteInds = site_inds(offsite),
+                       speciescoupling::SpeciesCoupling = SpeciesUnCoupled(),
+                       self_images::SelfImagePolicy = ExcludeSelfImages(),
+                       filter = (_, _) -> true, T = Float64)
+   _check_atom_centred(offsite)
+   return _pwc_basis(offsite, typeof(speciescoupling), self_images, inds, at, filter, T)
 end
 
 # ---------------------------------------------------------------------------

@@ -104,24 +104,21 @@ block_type(::ETSymMatrix, T = Float64) = SMatrix{3, 3, T, 9}
 # block transforms as Q*M*Q' (Cartesian) rather than D1*M*D1' (spherical basis).
 const _Pcart = SMatrix{3, 3}(0, 1, 0, 0, 0, 1, 1, 0, 0)
 
-# PERF TODO (production container): instead of conjugating every (L,k) block with
-# `_Pcart` at runtime (`_Pcart * Hy * _Pcart'` in `_to_block`), fold `_Pcart` into
-# the Clebsch-Gordan matrices once at construction. I.e. precompute `cg̃_L` such
-# that `reshape(cg̃_L * y, 3, 3)` is already in Cartesian ordering
-# (`cg̃_L = kron(_Pcart, _Pcart) * cgmatrix(1,1,L)`, accounting for column-major
-# reshape). Each block then costs a single mat-vec with no per-call conjugation.
-
 """
     ETOutput(property, LL)
 
-Callable that converts a single per-L ET output `(L, y)` into the Cartesian
-block for `property`. Precomputes the Clebsch-Gordan matrices for the matrix
-case and the cart-vector transform for the vector case.
+Converts the per-L ET outputs into Cartesian blocks for `property`. Besides the
+Clebsch-Gordan matrices (matrix case) it precomputes, per L channel, the *dense*
+linear map `Tcart[il]::SMatrix{NC, 2L+1}` from the spherical output `y` to the
+flattened Cartesian block `vec(block)` (`NC = length(block_type(property))`).
+All runtime conversions are then a single small static mat-vec; the same maps
+are folded into the model coefficients by the fast evaluators (fasteval.jl).
 """
-struct ETOutput{P <: ETProperty, NL, TCG}
+struct ETOutput{P <: ETProperty, NL, TCG, TT}
    property::P
    LL::NTuple{NL, Int}
    cgs::TCG          # tuple of cgmatrix(1,1,L) for matrix properties; () otherwise
+   Tcart::TT         # NTuple{NL, SMatrix{NC, 2L+1, Float64}} spherical -> vec(Cartesian)
 end
 
 function ETOutput(property::ETProperty)
@@ -132,7 +129,24 @@ end
 # build for an explicit (possibly reduced) LL — see `build_equivariant_tensor`.
 function ETOutput(property::ETProperty, LL::NTuple{N, Int}) where {N}
    cgs = _build_cgs(property, LL)
-   return ETOutput(property, LL, cgs)
+   Tcart = ntuple(il -> _cart_map(property, cgs, LL, il), N)
+   return ETOutput(property, LL, cgs, Tcart)
+end
+
+# ET's per-channel output element is a Float64 for L = 0 and an SVector{2L+1}
+# otherwise; `_sph_unit(L, m)` is the m-th unit element of that type.
+_sph_dim(L::Int) = 2L + 1
+_sph_unit(L::Int, m::Int) = L == 0 ? 1.0 :
+      SVector{2L + 1, Float64}(ntuple(i -> i == m ? 1.0 : 0.0, 2L + 1))
+_svec(x::Number) = SVector(x)
+_svec(v::SVector) = v
+
+# dense (NC × 2L+1) matrix of the linear spherical -> vec(Cartesian block) map of
+# channel `il`, obtained by pushing unit spherical inputs through `_to_block`.
+function _cart_map(property::ETProperty, cgs, LL, il::Int)
+   L = LL[il]; D = _sph_dim(L); NC = length(block_type(property))
+   cols = ntuple(m -> SVector{NC, Float64}(Tuple(_to_block(property, cgs, L, il, _sph_unit(L, m)))), D)
+   return SMatrix{NC, D, Float64}(hcat(cols...))
 end
 
 _build_cgs(::Union{ETMatrix, ETSymMatrix}, LL) =
@@ -205,18 +219,22 @@ end
 
 Fill `blocks` (a `Vector{block}` of length `sum(length, BB)`) with the Cartesian
 block for every (L, k) basis function, ordered by L channel then within-channel
-index. Returns `blocks`.
+index. Each block is one static mat-vec with the precomputed `Tcart` map of its
+channel (type-stable recursion over the channel tuple). Returns `blocks`.
 """
-function assemble_blocks!(blocks, out::ETOutput, BB)
-   i = 0
-   for (il, L) in enumerate(out.LL)
-      BBl = BB[il]
-      @inbounds for k in eachindex(BBl)
-         i += 1
-         blocks[i] = _to_block(out.property, out.cgs, L, il, BBl[k])
-      end
+assemble_blocks!(blocks, out::ETOutput, BB) = _assemble_rec(blocks, 0, out.Tcart, BB)
+
+_assemble_rec(blocks, k0, ::Tuple{}, ::Tuple{}) = blocks
+function _assemble_rec(blocks, k0, Tcart::Tuple, BB::Tuple)
+   k1 = _fill_blocks!(blocks, k0, Tcart[1], BB[1])
+   return _assemble_rec(blocks, k1, Base.tail(Tcart), Base.tail(BB))
+end
+
+function _fill_blocks!(blocks::AbstractVector{BT}, k0::Int, Ts::SMatrix, y::AbstractVector) where {BT}
+   @inbounds for k in eachindex(y)
+      blocks[k0 + k] = BT(Tuple(Ts * _svec(y[k])))
    end
-   return blocks
+   return k0 + length(y)
 end
 
 """number of basis functions = total over all L channels."""

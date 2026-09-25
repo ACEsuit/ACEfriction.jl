@@ -15,6 +15,17 @@ end
     # public-API integration on the ET backend (constructors -> Gamma/Sigma -> Flux fit)
     @testset "cutover integration" begin _run_test("test_cutover_integration.jl") end
 
+    # fast (per-centre, coefficient-contracted) assembly vs the previous per-bond generic
+    # path on multi-species systems, all model types / block properties / conventions
+    @testset "fast vs reference" begin _run_test("test_fast_vs_reference.jl") end
+
+    # concurrent matrix/basis calls on one model object (runs in a 4-thread subprocess
+    # when the test process is single-threaded)
+    @testset "thread safety" begin _run_test("test_threadsafety.jl") end
+
+    # extension API: a matrix-model type defined outside the package (public names only)
+    @testset "extension API" begin _run_test("test_extension_api.jl") end
+
     # I/O data round-trip
     @testset "I/O data" begin _run_test("test_IO_data.jl") end
 

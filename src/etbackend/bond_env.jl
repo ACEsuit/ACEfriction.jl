@@ -28,16 +28,43 @@ env_cutoff(ec::EllipsoidCutoff) =
 env_filter(r, z, ec::EllipsoidCutoff) = ((z/ec.zcutenv)^2 + (r/ec.rcutenv)^2 <= 1)
 
 """
-    SphericalCutoff(rcut)
+    SphericalCutoff(rcut; partner_in_env = true)
 
 Spherical pair-environment cutoff for the *atom-centred* offsite model: the bond
 environment of a pair (i,j) is the set of neighbours of atom `i` within `rcut`,
 with `j` itself the bond partner. (Cf. ACEfrictionCore `SphericalCutoff`.)
+
+`partner_in_env` selects whether the bond partner `j` is *also* pooled into the
+environment features of the bond (i,j):
+
+- `true` (default): the environment is all of `N_i` (including `j`). The environment
+  features are then shared by all bonds of the centre and, since every bond basis
+  function contains exactly one bond factor, the blocks factorise as
+  `Σ_ij = T_i · φ(r_ij)` with a per-centre tensor `T_i` and cheap per-bond
+  one-particle features `φ`. This makes the pair blocks of a centre cost about as
+  much as a single onsite (energy-like) evaluation.
+- `false`: the environment is `N_i \\ {j}` (all other neighbours of `i`), the
+  original convention. Every bond of a centre then has a different environment, so
+  evaluating the pair blocks costs one many-body evaluation *per bond*.
+
+The two settings are different bases (spanning the same function space), so a model
+must be evaluated with the setting it was fitted with; the setting is serialized, and
+models saved before the option existed load as `false`. On H/Cu reference data the two
+fit equally well. They coincide exactly when the partner's species is excluded from the
+environment factors, and for the antisymmetric `SnowManCutoff` at `maxorder = 2`.
 """
 struct SphericalCutoff{T}
    rcut::T
+   partner_in_env::Bool
 end
+SphericalCutoff(rcut::Real; partner_in_env::Bool = true) =
+      SphericalCutoff(float(rcut), partner_in_env)
+SphericalCutoff{T}(rcut::Real) where {T} = SphericalCutoff{T}(T(rcut), true)
 env_cutoff(sc::SphericalCutoff) = sc.rcut
+
+"""whether the bond partner is pooled into the bond environment (see `SphericalCutoff`)."""
+partner_in_env(c::SphericalCutoff) = c.partner_in_env
+partner_in_env(c::EllipsoidCutoff) = false
 
 """
     SnowManCutoff(rcut, symmetry = :symmetric)
@@ -53,16 +80,21 @@ them with the *same* coefficients. The combination is selected by `symmetry`:
 
 `symmetry` is carried as a (Symbol-valued) type parameter `SnowManCutoff{T, S}` so the
 assembly dispatches on it. `rcut` is the per-centre spherical radius (same convention as
-[`SphericalCutoff`](@ref)).
+[`SphericalCutoff`](@ref)). The keyword `partner_in_env` (default `true`) has the same
+meaning as for [`SphericalCutoff`](@ref): with `true` the bond partner is pooled into each
+sphere's environment, which lets the per-centre evaluation be shared across all bonds.
 """
 struct SnowManCutoff{T, S}
    rcut::T
-   function SnowManCutoff(rcut::T, symmetry::Symbol = :symmetric) where {T}
+   partner_in_env::Bool
+   function SnowManCutoff(rcut::T, symmetry::Symbol = :symmetric;
+                          partner_in_env::Bool = true) where {T}
       @assert symmetry in (:symmetric, :antisymmetric) "symmetry must be :symmetric or :antisymmetric (got :$symmetry)."
-      return new{T, symmetry}(rcut)
+      return new{T, symmetry}(rcut, partner_in_env)
    end
 end
 env_cutoff(sc::SnowManCutoff) = sc.rcut
+partner_in_env(c::SnowManCutoff) = c.partner_in_env
 "the symmetry tag (`:symmetric` / `:antisymmetric`) carried in the type parameter."
 symmetry(::SnowManCutoff{T, S}) where {T, S} = S
 
@@ -80,15 +112,17 @@ _snowman_combine(::SnowManCutoff{T, :antisymmetric}, a, b) where {T} = a - b
     spherical_bond_transform(j_loc, Rs, Zs, sc) -> (r̂bond, Rs_env, Zs_env)
 
 For the (atom-centred) spherical / snowman offsite models: bond direction
-`Rs[j_loc]/rcut`, environment = the *other* neighbours of the centre (each `/rcut`).
+`Rs[j_loc]/rcut`, environment = the neighbours of the centre (each `/rcut`),
+*excluding* the bond partner unless `partner_in_env(sc)` is `true`.
 Mirrors ACEfrictionCore's `env_transform(j, Rs, Zs, ::SphericalCutoff)`.
 """
 function spherical_bond_transform(j_loc::Int, Rs::AbstractVector{<:SVector{3}},
                                   Zs::AbstractVector, sc::Union{SphericalCutoff,SnowManCutoff})
    rbond = Rs[j_loc] / sc.rcut
+   keep = partner_in_env(sc)
    Rs_env = SVector{3,Float64}[]; Zs_env = Int[]
    for l in eachindex(Rs)
-      l == j_loc && continue
+      (l == j_loc && !keep) && continue
       push!(Rs_env, Rs[l] / sc.rcut); push!(Zs_env, Zs[l])
    end
    return rbond, Rs_env, Zs_env
@@ -120,12 +154,14 @@ end
 # ---------------------------------------------------------------------------
 # Bond iterator (single ellipsoid cutoff) yielding (i, j, rrij, Js, Rs, Zs).
 
-struct ETBondsIterator{TX}
-   X::TX
+# (fields concretely typed: an abstract `PairList` field made every neighbour
+# access in `_bond_env` dynamically dispatched, ~15 μs per bond)
+struct ETBondsIterator{TPL <: PairList}
+   X::Vector{SVector{3, Float64}}
    Z::Vector{Int}
    N::Int
-   nlist_bond::PairList
-   nlist_env::PairList
+   nlist_bond::TPL
+   nlist_env::TPL
    ec::EllipsoidCutoff{Float64}
 end
 
@@ -135,7 +171,7 @@ function et_bonds(sys::AbstractSystem, ec::EllipsoidCutoff)
    Z = Int[ Int(atomic_number(sys, i)) for i in 1:N ]
    nlist_bond = PairList(sys, ec.rcutbond * u"Å")
    nlist_env  = PairList(sys, env_cutoff(ec) * u"Å")
-   return ETBondsIterator(X, Z, N, nlist_bond, nlist_env, ec)
+   return ETBondsIterator(X, Z, N, nlist_bond, nlist_env, EllipsoidCutoff{Float64}(ec.rcutbond, ec.rcutenv, ec.zcutenv))
 end
 
 function _bond_env(iter::ETBondsIterator, i, j, rrij)
@@ -144,7 +180,8 @@ function _bond_env(iter::ETBondsIterator, i, j, rrij)
    rrmid = rri + 0.5 * rrij
    ŝ = rrij / norm(rrij)
    Js = Int[]; Rs = SVector{3,Float64}[]; Zs = Int[]
-   q_bond = findfirst(rrq -> rrq ≈ rrij, Rs_i)
+   # the bond partner's own entry (same atom index and same periodic image)
+   q_bond = findfirst(q -> Js_i[q] == j && Rs_i[q] ≈ rrij, eachindex(Js_i))
    for (q, rrq) in enumerate(Rs_i)
       q == q_bond && continue
       rr = rrq + rri - rrmid

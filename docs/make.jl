@@ -38,7 +38,8 @@ makedocs(;
             "ACEfriction.FrictionModels" => "./function-manual/ACEfriction.FrictionModels.md",
             "ACEfriction.MatrixModels" => "./function-manual/ACEfriction.MatrixModels.md",
             "ACEfriction.FrictionFit" => "./function-manual/ACEfriction.FrictionFit.md",
-            "ACEfriction.DataUtils" => "./function-manual/ACEfriction.DataUtils.md"
+            "ACEfriction.DataUtils" => "./function-manual/ACEfriction.DataUtils.md",
+            "Extending ACEfriction" => "extending.md"
         ]
     ]
     )

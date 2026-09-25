@@ -1,11 +1,10 @@
 # Flattened ET site models.
 #
 # This realizes the Phase-2 design decision: there is NO LinearACEModel / wrapper
-# layer. A site model holds the basis and the coefficient vector `c` directly, and
-# the contracted evaluation Σₖ cₖ·Bₖ is a one-liner. `params`/`nparams`/
-# `set_params!` operate on `c`. (ACEfrictionCore's LinearACEModel contracts at the
-# AA level via ProductEvaluator, but ET has no such fast path and the fitting path
-# materializes B anyway, so the wrapper carries no value.)
+# layer. A site model holds the basis and the coefficient vector `c` directly.
+# `params`/`nparams`/`set_params!` operate on `c`. The contracted evaluation
+# Σₖ cₖ·Bₖ goes through the coefficient-folded fast evaluator (`fast`, see
+# fasteval.jl), which is re-synced with `c` on every call.
 #
 # `c` is `Vector{SVector{NR,Float64}}` where `NR` = number of replicas (n_rep):
 # each basis function carries NR linear coefficients (the friction model fits NR
@@ -22,15 +21,17 @@ Flattened onsite site model: the site basis plus per-basis-function coefficients
 `c::Vector{SVector{NR,Float64}}` (`NR` = number of replicas). No nested linear
 model. Build with an explicit `c`, or with `n_rep` for random initialisation.
 """
-mutable struct ETOnsiteModel{NR, P, TB}
+mutable struct ETOnsiteModel{NR, P, TB, TF}
    basis::TB
    c::Vector{SVector{NR, Float64}}
+   fast::TF                            # ETFastModel: contracted evaluation (fasteval.jl)
 end
 
 function ETOnsiteModel(basis::ETFrictionSiteBasis{P},
                        c::Vector{SVector{NR, Float64}}) where {P, NR}
    @assert length(basis) == length(c) "basis length $(length(basis)) ≠ #coeffs $(length(c))"
-   return ETOnsiteModel{NR, P, typeof(basis)}(basis, c)
+   fast = ETFastModel(basis, c)
+   return ETOnsiteModel{NR, P, typeof(basis), typeof(fast)}(basis, c, fast)
 end
 
 ETOnsiteModel(basis::ETFrictionSiteBasis, n_rep::Integer) =
@@ -67,15 +68,4 @@ evaluate_basis(m::ETOnsiteModel, Rs, Zs) = evaluate(m.basis, Rs, Zs)
 Contracted output Σ for each replica: `Σ[r] = Σₖ c[k][r]·B[k]`. Replaces the old
 `evaluate(linmodel, cfg)`.
 """
-function evaluate(m::ETOnsiteModel{NR}, Rs, Zs) where {NR}
-   B = evaluate(m.basis, Rs, Zs)
-   TB = block_type(m.basis)
-   Σ = zero(MVector{NR, TB})
-   @inbounds for k in eachindex(B)
-      ck = m.c[k]; Bk = B[k]
-      for r in 1:NR
-         Σ[r] += ck[r] * Bk
-      end
-   end
-   return SVector(Σ)
-end
+evaluate(m::ETOnsiteModel, Rs, Zs) = evaluate(refresh!(m.fast, m.c), Rs, Zs)

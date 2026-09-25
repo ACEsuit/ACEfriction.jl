@@ -16,6 +16,7 @@ const _ETB_TESTS = [
    "test_offsite.jl",
    "test_basis_fit.jl",
    "test_serialization.jl",
+   "test_fasteval.jl",
    # test_equivalence.jl is intentionally omitted post-cutover: it cross-checked the
    # old ACEfrictionCore backend, which no longer exists.
 ]
