@@ -121,7 +121,7 @@ function bond_basis(property::ETProperty, species;
                   species_minorder_dict = species_minorder_dict,
                   species_maxorder_dict = species_maxorder_dict, z2sym = z2sym,
                   parity = parity)
-   isempty(mb_spec) && error("empty bond mb_spec (check maxdeg/maxorder/z2sym)")
+   isempty(mb_spec) && error(_empty_bond_basis_msg(property, maxorder, maxdeg, z2sym, parity))
    tensor, out = build_equivariant_tensor(property, mb_spec,
                                           radial_spec(rbasis), Ylm_spec)
    sel = _selection_recipe(weight, p_sel, species_weight_cat,
@@ -139,6 +139,23 @@ function bond_basis(property::ETProperty, species;
       "radial" => Dict{String, Any}(string(k) => v for (k, v) in radial_kwargs))
    meta = Dict{String, Any}("recipe" => recipe)
    return ETFrictionSiteBasis(property, rbasis, ybasis, tensor, out, meta)
+end
+
+# Explain an empty bond basis. The common cause is a conflict between the Z2 filter
+# (parity of the bond factor's degree) and the O(3) parity filter (parity of the total
+# degree): with maxorder = 1 every function is a single bond factor, so e.g. a Z2-odd
+# bond factor can never have the even total degree of a true (matrix) tensor.
+function _empty_bond_basis_msg(property, maxorder, maxdeg, z2sym, parity)
+   msg = "empty bond basis (property '$(_property_str(property))', maxorder = $maxorder, " *
+         "maxdeg = $maxdeg, z2sym = :$z2sym, o3symmetry = $(parity !== nothing))"
+   if parity !== nothing && z2sym != :none && maxorder == 1
+      return msg * ": with maxorder = 1 every basis function is a single bond factor, whose " *
+             "degree must be $(z2sym) (z2sym = :$z2sym), while O(3) equivariance of this " *
+             "property requires an $(parity) total degree; no function satisfies both. Use " *
+             "maxorder >= 2 (environment factors can supply the missing parity) or " *
+             "o3symmetry = false (rotation-only equivariance)."
+   end
+   return msg * "; increase maxdeg / maxorder or relax the z2sym / o3symmetry selection."
 end
 
 """
