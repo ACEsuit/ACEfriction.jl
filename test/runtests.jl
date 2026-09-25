@@ -15,6 +15,10 @@ end
     # public-API integration on the ET backend (constructors -> Gamma/Sigma -> Flux fit)
     @testset "cutover integration" begin _run_test("test_cutover_integration.jl") end
 
+    # fast (per-centre, coefficient-contracted) assembly vs the previous per-bond generic
+    # path on multi-species systems, all model types / block properties / conventions
+    @testset "fast vs reference" begin _run_test("test_fast_vs_reference.jl") end
+
     # I/O data round-trip
     @testset "I/O data" begin _run_test("test_IO_data.jl") end
 

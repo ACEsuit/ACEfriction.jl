@@ -13,12 +13,19 @@ end
 
 # Σ (diffusion coefficient matrix): per replica a block-diagonal matrix
 function matrix(M::OnsiteOnlyMatrixModel, at::AbstractSystem; filter=(_,_)->true, T=Float64)
+    _refresh!(M)
+    return _onsite_matrix(M.onsite, M.n_rep, at, filter, T)
+end
+
+# function barrier: `onsite` arrives concretely typed (the model field is abstract)
+function _onsite_matrix(onsite::AbstractDict, n_rep::Int, at, filter, ::Type{T}) where {T}
     N = length(at); Z = _species(at)
-    Σ = [ Diagonal(zeros(_block_type(M,T), N)) for _ = 1:M.n_rep ]
-    for (i, neigs, Rs) in _sites(at, env_cutoff(M.onsite))
-        (haskey(M.onsite, Z[i]) && filter(i, at) && length(neigs) > 0) || continue
-        Σi = evaluate(M.onsite[Z[i]], Rs, Z[neigs])
-        for r = 1:M.n_rep
+    BT = block_type(first(values(onsite)).basis, T)
+    Σ = [ Diagonal(zeros(BT, N)) for _ = 1:n_rep ]
+    for (i, neigs, Rs) in _sites(at, env_cutoff(onsite))
+        (haskey(onsite, Z[i]) && filter(i, at) && length(neigs) > 0) || continue
+        Σi = evaluate(onsite[Z[i]], Rs, Z[neigs])
+        for r = 1:n_rep
             Σ[r].diag[i] = Σi[r]
         end
     end

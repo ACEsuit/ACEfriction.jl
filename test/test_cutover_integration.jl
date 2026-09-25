@@ -68,6 +68,34 @@ _dense(G, N) = (A = zeros(3N, 3N); for i=1:N, j=1:N; A[3i-2:3i, 3j-2:3j] .= G[i,
       @test norm(_dense(Gamma(fm2, at), N) - Gd) < 1e-10
    end
 
+   @testset "partner_in_env (factorised pair environment): consistency + IO" begin
+      # With the bond partner pooled into the environment the pair blocks factorise and
+      # are assembled per centre; the result must still equal basis·c, be PSD, and the
+      # option must survive serialization. It is a different basis from the default.
+      for M in (CWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2, partner_in_env=true),
+                PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2, partner_in_env=true),
+                PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu], SnowManCutoff(5.0, :symmetric; partner_in_env=true);
+                               maxorder=2, maxdeg=4, n_rep=2))
+         om = first(values(M.offsite))
+         @test ACEfriction.ETBackend.partner_in_env(om.cutoff)
+         fm = FrictionModel((equ=M,))
+         Σ = Sigma(fm, at).equ
+         B = ACEfriction.MatrixModels.basis(M, at; join_sites=true)
+         c = params(M; format=:native)
+         @test maximum(norm(sum(c[k][r] * B[k] for k in eachindex(B)) - Σ[r]) for r in 1:2) < 1e-10
+         Gd = _dense(Gamma(fm, at), N)
+         @test minimum(eigvals(Symmetric(Gd))) > -1e-8
+         fm2 = read_dict(write_dict(fm))
+         @test ACEfriction.ETBackend.partner_in_env(first(values(fm2.matrixmodels.equ.offsite)).cutoff)
+         @test norm(_dense(Gamma(fm2, at), N) - Gd) < 1e-10
+      end
+      # default (partner excluded) and factorised are different bases
+      M0 = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=1)
+      M1 = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=1, partner_in_env=true)
+      set_params!(M1, params(M0))
+      @test norm(Sigma(FrictionModel((e=M0,)), at).e[1] - Sigma(FrictionModel((e=M1,)), at).e[1]) > 1e-6
+   end
+
    @testset "Flux fitting path: loss decreases" begin
       m_on = OnsiteOnlyMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2)
       m_pw = PWCMatrixModel(EuclideanMatrix(Float64), [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2)

@@ -15,9 +15,12 @@ using ACEfriction.mUtils: reinterpret
 import ACEfriction.ETBackend
 import ACEfriction.ETBackend: ETInvariant, ETVector, ETMatrix, ETSymMatrix, ETProperty,
        onsite_basis, bond_basis, evaluate_bond,
-       SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _snowman_combine,
+       SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _snowman_combine, partner_in_env,
        ellipsoid_env_transform, spherical_bond_transform, et_bonds, env_cutoff,
        _atomic_number, _chemical_symbol, block_type, output_LL
+# fast (coefficient-contracted, per-centre) evaluators — see etbackend/fasteval.jl
+import ACEfriction.ETBackend: ETFastModel, refresh!, ETBondCentre, bond_centre, bond_centre!,
+       bond_sigma, bond_basis_blocks, centre_type
 import ACEfriction.ETBackend: write_dict, read_dict
 
 export MatrixModel, CWCMatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
@@ -105,30 +108,39 @@ Base.length(bb::BondBasis) = length(bb.basis)
 
 abstract type SiteModel end
 
-struct OnSiteModel{O3S, NR, TB} <: SiteModel
+# Every site model carries a coefficient-contracted fast evaluator (`fast`) built on
+# its basis. Its fused weights are a function of `c`; `set_params!` refreshes them
+# and the assembly loops call `_fast(m)` once per site model per call, which
+# re-syncs iff `c` was mutated behind the model's back (e.g. through `params(m)`).
+
+struct OnSiteModel{O3S, NR, TB, TF} <: SiteModel
    basis::TB
    c::Vector{SVector{NR, Float64}}
    cutoff::SphericalCutoff{Float64}
+   fast::TF
 end
 function OnSiteModel(basis::TB, cutoff::SphericalCutoff, c::Vector{SVector{NR,Float64}}) where {TB, NR}
    @assert length(basis) == length(c)
    O3S = _o3sym(basis.property)
-   return OnSiteModel{O3S, NR, TB}(basis, c, SphericalCutoff{Float64}(cutoff.rcut))
+   fast = ETFastModel(basis, c)
+   return OnSiteModel{O3S, NR, TB, typeof(fast)}(basis, c, SphericalCutoff{Float64}(cutoff.rcut), fast)
 end
 OnSiteModel(basis, cutoff::SphericalCutoff, n_rep::Integer) =
       OnSiteModel(basis, cutoff, rand(SVector{n_rep, Float64}, length(basis)))
 OnSiteModel(basis, r_cut::Real, n_rep::Integer) =
       OnSiteModel(basis, SphericalCutoff(Float64(r_cut)), n_rep)
 
-struct OffSiteModel{O3S, Z2S, CUTOFF, NR, TB} <: SiteModel
+struct OffSiteModel{O3S, Z2S, CUTOFF, NR, TB, TF} <: SiteModel
    basis::TB
    c::Vector{SVector{NR, Float64}}
    cutoff::CUTOFF
+   fast::TF
 end
 function OffSiteModel(bb::BondBasis{TB, Z2S}, cutoff::CUTOFF, c::Vector{SVector{NR,Float64}}) where {TB, Z2S, CUTOFF, NR}
    @assert length(bb.basis) == length(c)
    O3S = _o3sym(bb.basis.property)
-   return OffSiteModel{O3S, Z2S, CUTOFF, NR, TB}(bb.basis, c, cutoff)
+   fast = ETFastModel(bb.basis, c)
+   return OffSiteModel{O3S, Z2S, CUTOFF, NR, TB, typeof(fast)}(bb.basis, c, cutoff, fast)
 end
 OffSiteModel(bb::BondBasis, cutoff, n_rep::Integer) =
       OffSiteModel(bb, cutoff, rand(SVector{n_rep, Float64}, length(bb.basis)))
@@ -144,7 +156,10 @@ _o3symmetry(::OffSiteModel{O3S}) where {O3S} = O3S
 Base.length(m::SiteModel) = length(m.basis)
 params(m::SiteModel) = m.c
 nparams(m::SiteModel) = length(m.c)
-set_params!(m::SiteModel, c) = (copyto!(m.c, c); m)
+set_params!(m::SiteModel, c) = (copyto!(m.c, c); refresh!(m.fast, m.c); m)
+
+"the site model's fast evaluator, re-synced with `m.c` if needed"
+_fast(m::SiteModel) = refresh!(m.fast, m.c)
 
 # contract ET basis blocks with the coefficients -> SVector{NR, block}
 function _contract(m::SiteModel, B)
@@ -156,8 +171,14 @@ function _contract(m::SiteModel, B)
    return SVector(Σ)
 end
 
+# The atom-centred bond cutoffs (Spherical / SnowMan) are the ones whose bonds share
+# a centre; `_partner_in_env(sm)` is the environment convention of the bond model.
+const AtomCentredCutoff = Union{SphericalCutoff, SnowManCutoff}
+_partner_in_env(sm::OffSiteModel) = partner_in_env(sm.cutoff)
+
+# ---- un-contracted basis (generic ET path; the fitting-path reference) ----
+
 # onsite: raw env vectors (radial transform handles rcut)
-evaluate(sm::OnSiteModel, Rs, Zs) = _contract(sm, ETBackend.evaluate(sm.basis, Rs, Zs))
 evaluate_basis(sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate(sm.basis, Rs, Zs)
 
 # offsite ellipsoid: bond vector + ellipsoid env
@@ -165,26 +186,64 @@ function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVect
    rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, sm.cutoff)
    return evaluate_bond(sm.basis, rbond, Rst, Zst)
 end
-evaluate(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S} =
-      _contract(sm, evaluate_basis(sm, rrij, Rs, Zs))
 
-# offsite spherical: atom-i neighbourhood + bond-partner local index
-function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:SphericalCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+# offsite spherical / snowman: atom-i neighbourhood + bond-partner local index. For
+# the snowman the two bond ends are combined at assembly time (pwcmatrixmodels.jl),
+# so the single-centre evaluation is the spherical one.
+function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:AtomCentredCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
    rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, sm.cutoff)
    return evaluate_bond(sm.basis, rbond, Rse, Zse)
 end
-evaluate(sm::OffSiteModel{O3S,Z2S,<:SphericalCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S} =
-      _contract(sm, evaluate_basis(sm, j_loc, Rs, Zs))
 
-# offsite snowman: single-centre spherical evaluation (same as spherical). The two
-# bond ends are combined at assembly time in pwcmatrixmodels.jl (Σ_ij = c·B(env_ij)
-# + c·B(env_ji)), so per-centre evaluation reuses the spherical transform.
-function evaluate_basis(sm::OffSiteModel{O3S,Z2S,<:SnowManCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
-   rbond, Rse, Zse = spherical_bond_transform(Int(j_loc), Rs, Zs, sm.cutoff)
-   return evaluate_bond(sm.basis, rbond, Rse, Zse)
+# ---- contracted Σ blocks: fast evaluators ----
+
+evaluate(sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate(_fast(sm), Rs, Zs)
+
+function evaluate(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S}
+   rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, sm.cutoff)
+   return ETBackend.evaluate_bond(_fast(sm), rbond, Rst, Zst)
 end
-evaluate(sm::OffSiteModel{O3S,Z2S,<:SnowManCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S} =
-      _contract(sm, evaluate_basis(sm, j_loc, Rs, Zs))
+
+# single bond of an atom-centred model: per-centre state built for this call only.
+# The assembly loops use `bond_centre` / `bond_sigma` directly to share it.
+function evaluate(sm::OffSiteModel{O3S,Z2S,<:AtomCentredCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+   pie = _partner_in_env(sm)
+   ctr = bond_centre(_fast(sm), Rs, Zs, sm.cutoff.rcut; partner_in_env = pie)
+   return bond_sigma(sm.fast, ctr, Int(j_loc); partner_in_env = pie)
+end
+
+# ---- reference contraction through the generic basis (for cross-checks) ----
+evaluate_ref(sm::SiteModel, args...) = _contract(sm, evaluate_basis(sm, args...))
+
+# refresh the fast evaluators of all site models of a matrix model (once per call)
+function _refresh!(M)
+   for site in (:onsite, :offsite)
+      hasfield(typeof(M), site) || continue
+      for m in values(getfield(M, site)); _fast(m); end
+   end
+   return M
+end
+
+# Per-species-pair bond-model states, reused across all centres of one assembly
+# call: the state's `tag` records the centre it was last filled for, so a state is
+# (re)filled at most once per centre and its buffers are never reallocated.
+_centre_cache(offsite::AbstractDict) =
+      Dict{Tuple{Int,Int}, centre_type(first(values(offsite)).fast)}()
+
+# (explicit lookup rather than `get!` with a closure: the closure would capture and
+# heap-box the whole site model on every call)
+@inline function _get_centre!(cache, om::OffSiteModel, zz, i::Int, Rs, Zs)
+   ctr = get(cache, zz, nothing)
+   if ctr === nothing
+      ctr = ETBondCentre(om.fast)
+      cache[zz] = ctr
+   end
+   if ctr.tag != i
+      bond_centre!(ctr, om.fast, Rs, Zs, om.cutoff.rcut; partner_in_env = _partner_in_env(om))
+      ctr.tag = i
+   end
+   return ctr
+end
 
 const OnSiteModels{O3S} = Dict{Int, <:OnSiteModel{O3S}}
 const OffSiteModels{O3S, Z2S, CUTOFF} = Dict{Tuple{Int,Int}, <:OffSiteModel{O3S, Z2S, CUTOFF}}
