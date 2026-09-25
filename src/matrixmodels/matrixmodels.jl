@@ -213,6 +213,69 @@ function evaluate!(sd::ETSiteData, sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, 
    return ETBackend.evaluate_bond!(sd, sm.fast, rbond, Rst, Zst)
 end
 
+# ---- un-contracted basis assembly with a shared sparsity pattern ----
+#
+# Every basis function of one site model (species / species pair) has an entry on
+# exactly the sites/bonds that model is assembled on. `_BasisAccum` collects, per
+# model key, the (i, j) of every site/bond and its vector of basis blocks; `_assemble`
+# then computes each model's sparsity pattern once (summing repeated (i, j), e.g.
+# several periodic images of one pair, as `sparse` does) and fills the values of each
+# basis function into it, instead of growing and sorting one (I, J, V) triplet list
+# per basis function (which dominated `basis` once the ACE evaluation got cheap).
+struct _BasisAccum{KEY, BT}
+   I::Dict{KEY, Vector{Int}}
+   J::Dict{KEY, Vector{Int}}
+   B::Dict{KEY, Vector{Vector{BT}}}
+end
+_BasisAccum{KEY, BT}() where {KEY, BT} =
+      _BasisAccum{KEY, BT}(Dict{KEY, Vector{Int}}(), Dict{KEY, Vector{Int}}(), Dict{KEY, Vector{Vector{BT}}}())
+
+function _accum!(acc::_BasisAccum{KEY, BT}, key, i::Int, j::Int, Bij::AbstractVector) where {KEY, BT}
+   push!(get!(Vector{Int}, acc.I, key), i)
+   push!(get!(Vector{Int}, acc.J, key), j)
+   push!(get!(Vector{Vector{BT}}, acc.B, key), Bij isa Vector{BT} ? Bij : Vector{BT}(Bij))
+   return acc
+end
+
+# CSC pattern of the entries (I[t], J[t]) with repeated positions merged; `dest[t]` is
+# the stored-entry index of entry t
+function _shared_pattern(I::Vector{Int}, J::Vector{Int}, N::Int)
+   p = sortperm(eachindex(I); by = t -> (J[t], I[t]))
+   colptr = zeros(Int, N + 1); rowval = Int[]; dest = zeros(Int, length(I))
+   prev = (0, 0)
+   for t in p
+      key = (J[t], I[t])
+      if key != prev
+         push!(rowval, I[t]); colptr[J[t] + 1] += 1; prev = key
+      end
+      dest[t] = length(rowval)
+   end
+   colptr[1] = 1
+   for c in 1:N; colptr[c + 1] += colptr[c]; end
+   return colptr, rowval, dest
+end
+
+"the `K` sparse basis matrices; `ranges(key)` = basis-function indices of model `key`"
+function _assemble(acc::_BasisAccum{KEY, BT}, ranges, K::Int, N::Int) where {KEY, BT}
+   B = Vector{SparseMatrixCSC{BT, Int}}(undef, K)
+   filled = falses(K)
+   for (key, Bs) in acc.B
+      colptr, rowval, dest = _shared_pattern(acc.I[key], acc.J[key], N)
+      for (t, k) in enumerate(ranges(key))
+         nz = zeros(BT, length(rowval))
+         @inbounds for e in eachindex(Bs)
+            nz[dest[e]] += Bs[e][t]
+         end
+         B[k] = SparseMatrixCSC(N, N, copy(colptr), copy(rowval), nz)
+         filled[k] = true
+      end
+   end
+   for k in 1:K
+      filled[k] || (B[k] = spzeros(BT, N, N))
+   end
+   return B
+end
+
 # per-call neighbour workspaces, one per site model (keyed like the model dict)
 _workspace_cache(models::AbstractDict{K}) where {K} = Dict{K, ETSiteData}()
 @inline function _workspace!(cache, key, m::SiteModel)
@@ -252,14 +315,14 @@ _centre_cache(offsite::AbstractDict) =
 
 # (explicit lookup rather than `get!` with a closure: the closure would capture and
 # heap-box the whole site model on every call)
-@inline function _get_centre!(cache, om::OffSiteModel, zz, i::Int, Rs, Zs)
+@inline function _get_centre!(cache, om::OffSiteModel, zz, i::Int, Rs, Zs, mode::Symbol = :sigma)
    ctr = get(cache, zz, nothing)
    if ctr === nothing
       ctr = ETBondCentre(om.fast)
       cache[zz] = ctr
    end
    if ctr.tag != i
-      bond_centre!(ctr, om.fast, Rs, Zs, om.cutoff.rcut; partner_in_env = _partner_in_env(om))
+      bond_centre!(ctr, om.fast, Rs, Zs, om.cutoff.rcut; partner_in_env = _partner_in_env(om), mode = mode)
       ctr.tag = i
    end
    return ctr

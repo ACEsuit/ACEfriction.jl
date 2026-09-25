@@ -62,4 +62,36 @@ _maxdiff(A, B) = maximum(maximum(norm.(A[r] - B[r]); init = 0.0) for r in eachin
    end
 end
 
+# The fused weights, sparsity groups and bond factorisations are built lazily on first
+# use. Hit FRESH models (nothing built yet) from many threads at once, so the lazy
+# builds themselves race, and compare with an identical model evaluated serially.
+@testset "thread safety: concurrent first use (lazy builds)" begin
+   fresh = [
+      "onsite"         => () -> OnsiteOnlyMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H]; rcut = 4.5, kw...),
+      "PWC sph. (pie)" => () -> PWCMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H]; rcut = 4.5, kw...),
+      "PWC sph. excl"  => () -> PWCMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H]; rcut = 4.5,
+                                               partner_in_env = false, kw...),
+      "PWC snowman"    => () -> PWCMatrixModel(EuclideanMatrix(Float64), [:Cu, :H], [:Cu, :H],
+                                               SnowManCutoff(4.5, :antisymmetric); kw...),
+   ]
+   for (name, mk) in fresh
+      mref = mk(); c = MM.params(mref)
+      Σref = [ MM.matrix(mref, at) for at in ats ]
+      Bref = [ MM.basis(mref, at; join_sites = true) for at in ats ]
+      m = mk(); MM.set_params!(m, c)                   # same coefficients, nothing built
+      tasks = [ Threads.@spawn begin
+                   a = mod1(k, length(ats))
+                   isodd(k) ? (a, :Σ, MM.matrix(m, ats[a])) : (a, :B, MM.basis(m, ats[a]; join_sites = true))
+                end for k in 1:32 ]
+      err = 0.0
+      for t in tasks
+         a, kind, X = fetch(t)
+         err = max(err, _maxdiff(X, kind === :Σ ? Σref[a] : Bref[a]))
+      end
+      @testset "$name" begin
+         @test err < 1e-12
+      end
+   end
+end
+
 end # threaded body

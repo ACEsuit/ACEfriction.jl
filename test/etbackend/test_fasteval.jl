@@ -63,8 +63,18 @@ end
             @test maximum(norm(Σ[r] - Σref[r]) for r in 1:nrep) < 1e-11 * max(1, maximum(norm, Σref))
             B = ETBackend.bond_basis_blocks(fm.fs, ctr, j; partner_in_env = pie)
             @test maxblockerr(B, Bref) < 1e-12
+            # fitting path through the fast model: factorised per-centre basis
+            # coefficients when `partner_in_env` (state built in basis mode)
+            ctrB = ETBackend.bond_centre(fm, Rs, Zs, rcut; partner_in_env = pie, mode = :basis)
+            BF = ETBackend.bond_basis_blocks(fm, ctrB, j; partner_in_env = pie)
+            @test maxblockerr(BF, Bref) < 1e-12 * max(1, maximum(norm, Bref))
          end
       end
+      # the basis mode never builds the fused (coefficient-dependent) weights
+      fmB = ETBackend.ETFastModel(bb, c)
+      ETBackend.bond_centre(fmB, Rs, Zs, rcut; partner_in_env = true, mode = :basis)
+      w = @atomic fmB.weights
+      @test w.S.val === nothing && w.T.val === nothing
       # the two conventions are genuinely different bases
       ctr0 = ETBackend.bond_centre(fm, Rs, Zs, rcut; partner_in_env = false)
       ctr1 = ETBackend.bond_centre(fm, Rs, Zs, rcut; partner_in_env = true)

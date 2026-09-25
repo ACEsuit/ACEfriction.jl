@@ -72,27 +72,26 @@ function _cwc_basis(onsite::AbstractDict, offsite::AbstractDict, ::Type{SC}, sel
     N = length(at); Z = _species(at)
     BT = block_type(first(values(onsite)).basis, T)
     Kon = length(inds, :onsite); Koff = length(inds, :offsite)
-    Ion = [Int[] for _=1:Kon]; Jon = [Int[] for _=1:Kon]; Von = [BT[] for _=1:Kon]
-    Iof = [Int[] for _=1:Koff]; Jof = [Int[] for _=1:Koff]; Vof = [BT[] for _=1:Koff]
+    accon = _BasisAccum{Int, BT}(); accoff = _BasisAccum{Tuple{Int,Int}, BT}()
     ctrs = _centre_cache(offsite)
     for (i, neigs, Rs) in _sites(at, rcut)
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
         if haskey(onsite, Z[i])
             Bi = evaluate_basis(onsite[Z[i]], Rs, Zs)
-            for (k, b) in zip(get_range(inds, Z[i]), Bi); push!(Ion[k], i); push!(Jon[k], i); push!(Von[k], b); end
+            _accum!(accon, Z[i], i, i, Bi)
         end
         for (j_loc, j) in enumerate(neigs)
             (filter(j, at) && _keep_partner(self_images, i, j)) || continue
             (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
             om = offsite[(Zi, Zj)]
-            ctr = _get_centre!(ctrs, om, (Zi, Zj), i, Rs, Zs)
-            Bij = bond_basis_blocks(om.fast.fs, ctr, j_loc; partner_in_env = _partner_in_env(om))
-            for (k, b) in zip(get_range(inds, (Zi, Zj)), Bij); push!(Iof[k], i); push!(Jof[k], j); push!(Vof[k], b); end
+            ctr = _get_centre!(ctrs, om, (Zi, Zj), i, Rs, Zs, :basis)
+            Bij = bond_basis_blocks(om.fast, ctr, j_loc; partner_in_env = _partner_in_env(om))
+            _accum!(accoff, (Zi, Zj), i, j, Bij)
         end
     end
-    Bon = [ sparse(Ion[k], Jon[k], Von[k], N, N) for k = 1:Kon ]
-    Boff = [ sparse(Iof[k], Jof[k], Vof[k], N, N) for k = 1:Koff ]
+    Bon = _assemble(accon, z -> get_range(inds, z), Kon, N)
+    Boff = _assemble(accoff, zz -> get_range(inds, zz), Koff, N)
     return Bon, Boff
 end
 

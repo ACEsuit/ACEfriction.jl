@@ -117,6 +117,17 @@ conventions reached the same accuracy; they coincide exactly when the partner's 
 excluded from the environment factors, and for the antisymmetric `SnowManCutoff` at
 `maxorder = 2`.
 
+The un-contracted basis used for fitting (`basis`, `flux_assemble`) factorises in the
+same way: with the partner in the environment every basis function of a bond is a
+short sum of per-centre coefficients times the one-particle features of the bond, so
+assembling the fitting data does not evaluate a product basis per bond either.
+
+The weight columns are sparse in their Cartesian components (a product feature feeds
+only two or three of the nine components of a $3\times 3$ block), and the fused pass
+only touches the nonzero ones. All derived data (fused weights, sparsity layout,
+factorisations) is built lazily on first use and rebuilt automatically after
+`set_params!`; a model used only for fitting never builds the fused weights.
+
 The bond-centred `EllipsoidCutoff` transforms the environment differently for every
 bond, so it cannot share per-centre data; its cost remains one fused pass per bond.
 
