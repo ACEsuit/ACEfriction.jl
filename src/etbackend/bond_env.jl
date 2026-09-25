@@ -28,7 +28,7 @@ env_cutoff(ec::EllipsoidCutoff) =
 env_filter(r, z, ec::EllipsoidCutoff) = ((z/ec.zcutenv)^2 + (r/ec.rcutenv)^2 <= 1)
 
 """
-    SphericalCutoff(rcut; partner_in_env = false)
+    SphericalCutoff(rcut; partner_in_env = true)
 
 Spherical pair-environment cutoff for the *atom-centred* offsite model: the bond
 environment of a pair (i,j) is the set of neighbours of atom `i` within `rcut`,
@@ -37,24 +37,29 @@ with `j` itself the bond partner. (Cf. ACEfrictionCore `SphericalCutoff`.)
 `partner_in_env` selects whether the bond partner `j` is *also* pooled into the
 environment features of the bond (i,j):
 
-- `false` (default): the environment is `N_i \\ {j}` (all other neighbours of `i`).
-  Every bond of a centre then has a different environment, so evaluating the
-  pair blocks costs one many-body evaluation *per bond*.
-- `true`: the environment is all of `N_i` (including `j`). The environment
+- `true` (default): the environment is all of `N_i` (including `j`). The environment
   features are then shared by all bonds of the centre and, since every bond basis
   function contains exactly one bond factor, the blocks factorise as
   `Σ_ij = T_i · φ(r_ij)` with a per-centre tensor `T_i` and cheap per-bond
   one-particle features `φ`. This makes the pair blocks of a centre cost about as
-  much as a single onsite (energy-like) evaluation. It is a (slightly) different
-  basis, so models must be fitted with the same setting they are evaluated with.
+  much as a single onsite (energy-like) evaluation.
+- `false`: the environment is `N_i \\ {j}` (all other neighbours of `i`), the
+  original convention. Every bond of a centre then has a different environment, so
+  evaluating the pair blocks costs one many-body evaluation *per bond*.
+
+The two settings are different bases (spanning the same function space), so a model
+must be evaluated with the setting it was fitted with; the setting is serialized, and
+models saved before the option existed load as `false`. On H/Cu reference data the two
+fit equally well. They coincide exactly when the partner's species is excluded from the
+environment factors, and for the antisymmetric `SnowManCutoff` at `maxorder = 2`.
 """
 struct SphericalCutoff{T}
    rcut::T
    partner_in_env::Bool
 end
-SphericalCutoff(rcut::Real; partner_in_env::Bool = false) =
+SphericalCutoff(rcut::Real; partner_in_env::Bool = true) =
       SphericalCutoff(float(rcut), partner_in_env)
-SphericalCutoff{T}(rcut::Real) where {T} = SphericalCutoff{T}(T(rcut), false)
+SphericalCutoff{T}(rcut::Real) where {T} = SphericalCutoff{T}(T(rcut), true)
 env_cutoff(sc::SphericalCutoff) = sc.rcut
 
 """whether the bond partner is pooled into the bond environment (see `SphericalCutoff`)."""
@@ -75,7 +80,7 @@ them with the *same* coefficients. The combination is selected by `symmetry`:
 
 `symmetry` is carried as a (Symbol-valued) type parameter `SnowManCutoff{T, S}` so the
 assembly dispatches on it. `rcut` is the per-centre spherical radius (same convention as
-[`SphericalCutoff`](@ref)). The keyword `partner_in_env` (default `false`) has the same
+[`SphericalCutoff`](@ref)). The keyword `partner_in_env` (default `true`) has the same
 meaning as for [`SphericalCutoff`](@ref): with `true` the bond partner is pooled into each
 sphere's environment, which lets the per-centre evaluation be shared across all bonds.
 """
@@ -83,7 +88,7 @@ struct SnowManCutoff{T, S}
    rcut::T
    partner_in_env::Bool
    function SnowManCutoff(rcut::T, symmetry::Symbol = :symmetric;
-                          partner_in_env::Bool = false) where {T}
+                          partner_in_env::Bool = true) where {T}
       @assert symmetry in (:symmetric, :antisymmetric) "symmetry must be :symmetric or :antisymmetric (got :$symmetry)."
       return new{T, symmetry}(rcut, partner_in_env)
    end

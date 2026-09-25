@@ -45,12 +45,13 @@ end
 
 """
     PWCMatrixModel(property, species_friction, species_env;
-        maxorder=2, maxdeg=5, rcut=5.0, n_rep=1, partner_in_env=false, ...)
+        maxorder=2, maxdeg=5, rcut=5.0, n_rep=1, partner_in_env=true, ...)
 
 Pairwise-coupled (offsite) friction model with a spherical pair environment.
-`partner_in_env=true` pools the bond partner into the bond environment
+`partner_in_env=true` (default) pools the bond partner into the bond environment
 (see [`SphericalCutoff`](@ref)), which makes the evaluation of all pair blocks of a
-centre cost about one onsite evaluation.
+centre cost about one onsite evaluation; `false` selects the original
+partner-excluded environment.
 """
 function PWCMatrixModel(property, species_friction, species_env;
         id=nothing, n_rep=1, maxorder=2, maxdeg=5, rcut=5.0,
@@ -61,7 +62,7 @@ function PWCMatrixModel(property, species_friction, species_env;
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
         species_substrat=[], o3symmetry=true, include_self_images=false,
-        partner_in_env=false)
+        partner_in_env=true)
     bb = offsite_linbasis(property, species_env;
         z2symmetry=z2sym, rcut=1.0, maxorder=maxorder, maxdeg=maxdeg,
         r0_ratio=r0_ratio, rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel,
@@ -145,11 +146,12 @@ end
 
 """
     CWCMatrixModel(property, species_friction, species_env; maxorder=2, maxdeg=5, rcut=5.0, n_rep=1,
-                   partner_in_env=false, ...)
+                   partner_in_env=true, ...)
 
 Column-wise coupled friction model (onsite + spherical offsite). `partner_in_env=true`
-pools the bond partner into the offsite bond environment (see [`SphericalCutoff`](@ref)),
-which makes evaluating all offsite blocks of a centre cost about one onsite evaluation.
+(default) pools the bond partner into the offsite bond environment (see
+[`SphericalCutoff`](@ref)), which makes evaluating all offsite blocks of a centre cost
+about one onsite evaluation; `false` selects the original partner-excluded environment.
 
 !!! note "Renamed from `RWCMatrixModel`"
     This model was formerly called `RWCMatrixModel`. The coupling scheme named
@@ -166,7 +168,7 @@ function CWCMatrixModel(property, species_friction, species_env;
         species_maxorder_dict=Dict{Any,Float64}(),
         species_weight_cat=Dict(c => 1.0 for c in species_env),
         species_substrat=[], o3symmetry=true, include_self_images=false,
-        partner_in_env=false)
+        partner_in_env=true)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut, maxorder=maxorder, maxdeg=maxdeg, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight,
@@ -207,7 +209,7 @@ function CWCMatrixModel(property, species_friction, species_env, evalcenter::Eva
         species_weight_cat_on=Dict(c => 1.0 for c in species_env),
         species_minorder_dict_off=Dict{Any,Float64}(), species_maxorder_dict_off=Dict{Any,Float64}(),
         species_weight_cat_off=Dict(c => 1.0 for c in species_env),
-        o3symmetry=true, include_self_images=false, partner_in_env=false, kwargs...)
+        o3symmetry=true, include_self_images=false, partner_in_env=true, kwargs...)
     onsitebasis = onsite_linbasis(property, species_env;
         rcut=rcut_on, maxorder=maxorder_on, maxdeg=maxdeg_on, r0_ratio=r0_ratio,
         rin_ratio=rin_ratio, pcut=pcut, pin=pin, p_sel=p_sel, weight=weight_on,
