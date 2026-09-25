@@ -20,7 +20,7 @@ import ACEfriction.ETBackend: ETInvariant, ETVector, ETMatrix, ETSymMatrix, ETPr
        _atomic_number, _chemical_symbol, block_type, output_LL
 # fast (coefficient-contracted, per-centre) evaluators — see etbackend/fasteval.jl
 import ACEfriction.ETBackend: ETFastModel, refresh!, ETBondCentre, bond_centre, bond_centre!,
-       bond_sigma, bond_basis_blocks, centre_type
+       bond_sigma, bond_basis_blocks, centre_type, ETSiteData
 import ACEfriction.ETBackend: write_dict, read_dict
 
 export MatrixModel, CWCMatrixModel, RWCMatrixModel, OnsiteOnlyMatrixModel, PWCMatrixModel
@@ -197,11 +197,31 @@ end
 
 # ---- contracted Σ blocks: fast evaluators ----
 
+# `evaluate` re-syncs the fused weights and uses a fresh workspace (safe to call
+# anywhere). The assembly loops refresh once per call (`_refresh!`) and use
+# `evaluate!` with a per-call workspace (`_workspace!`): workspaces are never stored
+# in the model, so concurrent `matrix` calls on one model do not share buffers.
 evaluate(sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate(_fast(sm), Rs, Zs)
+evaluate!(sd::ETSiteData, sm::OnSiteModel, Rs, Zs) = ETBackend.evaluate!(sd, sm.fast, Rs, Zs)
 
 function evaluate(sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3}, Rs, Zs) where {O3S,Z2S}
+   return evaluate!(ETSiteData(_fast(sm)), sm, rrij, Rs, Zs)
+end
+function evaluate!(sd::ETSiteData, sm::OffSiteModel{O3S,Z2S,<:EllipsoidCutoff}, rrij::SVector{3},
+                   Rs, Zs) where {O3S,Z2S}
    rbond, Rst, Zst = ellipsoid_env_transform(rrij, Rs, Zs, sm.cutoff)
-   return ETBackend.evaluate_bond(_fast(sm), rbond, Rst, Zst)
+   return ETBackend.evaluate_bond!(sd, sm.fast, rbond, Rst, Zst)
+end
+
+# per-call neighbour workspaces, one per site model (keyed like the model dict)
+_workspace_cache(models::AbstractDict{K}) where {K} = Dict{K, ETSiteData}()
+@inline function _workspace!(cache, key, m::SiteModel)
+   sd = get(cache, key, nothing)
+   if sd === nothing
+      sd = ETSiteData(m.fast)
+      cache[key] = sd
+   end
+   return sd
 end
 
 # single bond of an atom-centred model: per-centre state built for this call only.

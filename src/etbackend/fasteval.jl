@@ -29,9 +29,10 @@
 #     T_i costs one fused pass per centre; each bond is an (NC·NR × n_bond1p) mat-vec.
 #
 # All per-site buffers (radial rows, Ylm, pooled A, ...) live in reusable
-# workspaces (`ETSiteData`) so the assembly loops do not allocate per centre. The
-# workspaces are NOT thread-safe: a multithreaded assembly needs one `ETFastModel`
-# (or at least one workspace / centre state) per thread.
+# workspaces (`ETSiteData`, `ETBondCentre`) so the assembly loops do not allocate
+# per centre. Workspaces are owned by the caller (one per assembly call), never by
+# the model: evaluating one model concurrently from several threads is safe as long
+# as its coefficients are not changed at the same time.
 
 using StaticArrays, LinearAlgebra, SparseArrays
 import Polynomials4ML as P4ML
@@ -87,7 +88,7 @@ end
 Coefficient-independent evaluation data of a site basis: the A spec grouped by
 species block (for pooling from species-independent radial rows), the ET AA
 basis (`SparseSymmProd`) whose spec drives the fused kernels, and a private
-neighbour workspace.
+per-call neighbour workspaces (`ETSiteData(fs)`).
 """
 struct ETFastSite{TB, TAA}
    basis::TB
@@ -96,7 +97,6 @@ struct ETFastSite{TB, TAA}
    apool::Vector{Vector{NTuple{3, Int}}}   # per species iz: (iA, n, iy)
    aabasis::TAA
    NC::Int
-   ws::ETSiteData
 end
 
 _nY(basis::ETFrictionSiteBasis) = length(P4ML.natural_indices(basis.ybasis))
@@ -109,9 +109,8 @@ function ETFastSite(basis::ETFrictionSiteBasis)
       push!(apool[iz], (iA, n, iy))
    end
    nA = length(T.abasis.spec)
-   ws = ETSiteData(nA, rb.nR, _nY(basis), _nz(rb))
    return ETFastSite(basis, nA, length(T.aabasis), apool, T.aabasis,
-                     length(block_type(basis)), ws)
+                     length(block_type(basis)))
 end
 
 Base.length(fs::ETFastSite) = length(fs.basis)
@@ -299,6 +298,8 @@ block_type(fm::ETFastModel) = block_type(fm.fs)
     refresh!(fm::ETFastModel, c)
 
 Rebuild the fused weights if the coefficients `c` differ from the cached snapshot.
+Read-only (hence safe under concurrent evaluation) when `c` is unchanged; changing
+coefficients while the model is being evaluated on other threads is not supported.
 """
 function refresh!(fm::ETFastModel, c::AbstractVector)
    if fm.c != c
@@ -312,25 +313,39 @@ end
 @inline sigma_from_A(fm::ETFastModel{M, NR}, A) where {M, NR} =
       _blocks_from(block_type(fm), fused_contract(fm.fs, fm.W, A), Val(NR))
 
+"a fresh neighbour workspace for evaluating `fm` (see [`evaluate!`](@ref))"
+ETSiteData(fm::ETFastModel) = ETSiteData(fm.fs)
+
 """
     evaluate(fm::ETFastModel, Rs, Zs) -> SVector{NR, block}
+    evaluate!(sd::ETSiteData, fm::ETFastModel, Rs, Zs) -> SVector{NR, block}
 
 Contracted output `Σ[r] = Σₖ c[k][r]·B[k]` on the environment `(Rs, Zs)` (raw
 vectors for onsite bases). Same result as `evaluate(::ETOnsiteModel, Rs, Zs)`.
-Uses the fast site's private workspace.
+`evaluate` uses a fresh workspace; `evaluate!` reuses the caller-owned `sd`
+(one per thread / assembly call).
 """
 evaluate(fm::ETFastModel, Rs::AbstractVector{<:SVector{3}}, Zs::AbstractVector) =
-      sigma_from_A(fm, site_data!(fm.fs.ws, fm.fs, Rs, Zs).A)
+      evaluate!(ETSiteData(fm), fm, Rs, Zs)
+
+evaluate!(sd::ETSiteData, fm::ETFastModel, Rs::AbstractVector{<:SVector{3}}, Zs::AbstractVector) =
+      sigma_from_A(fm, site_data!(sd, fm.fs, Rs, Zs).A)
 
 """
     evaluate_bond(fm::ETFastModel, rrij, Rs_env, Zs_env) -> SVector{NR, block}
+    evaluate_bond!(sd::ETSiteData, fm::ETFastModel, rrij, Rs_env, Zs_env)
 
 Contracted bond output for an explicitly transformed bond environment (e.g. the
-ellipsoid case): prepends the bond particle (species `BOND_Z`).
+ellipsoid case): prepends the bond particle (species `BOND_Z`). The `!` variant
+reuses the caller-owned workspace `sd`.
 """
 evaluate_bond(fm::ETFastModel, rrij::SVector{3}, Rs_env::AbstractVector{<:SVector{3}},
               Zs_env::AbstractVector) =
-      evaluate(fm, vcat([rrij], Rs_env), vcat([BOND_Z], Zs_env))
+      evaluate_bond!(ETSiteData(fm), fm, rrij, Rs_env, Zs_env)
+
+evaluate_bond!(sd::ETSiteData, fm::ETFastModel, rrij::SVector{3},
+               Rs_env::AbstractVector{<:SVector{3}}, Zs_env::AbstractVector) =
+      evaluate!(sd, fm, vcat([rrij], Rs_env), vcat([BOND_Z], Zs_env))
 
 # ----------------------------------------------------------------------
 # un-contracted basis from the pooled A (fitting path; same ordering as

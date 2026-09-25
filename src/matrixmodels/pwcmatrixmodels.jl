@@ -26,10 +26,12 @@ function _pwc_ellipsoid_matrix(offsite::AbstractDict, ::Type{SC}, self_images, n
     N = length(at); Z = _species(at)
     Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]
     Vs = [ Vector{block_type(first(values(offsite)).basis, T)}() for _=1:n_rep ]
+    wss = _workspace_cache(offsite)
     for (i, j, rrij, _Js, Rs, Zs) in et_bonds(at, _offsite_cutoff(offsite))
         (filter(i, at) && filter(j, at) && _keep_partner(self_images, i, j)) || continue
         (Zi, Zj) = _mreduce(Z[i], Z[j], SC); haskey(offsite, (Zi, Zj)) || continue
-        Σij = evaluate(offsite[(Zi, Zj)], rrij, Rs, Zs)
+        om = offsite[(Zi, Zj)]
+        Σij = evaluate!(_workspace!(wss, (Zi, Zj), om), om, rrij, Rs, Zs)
         for r = 1:n_rep; push!(Is[r], i); push!(Js[r], j); push!(Vs[r], Σij[r]); end
     end
     return [ sparse(Is[r], Js[r], Vs[r], N, N) for r = 1:n_rep ]

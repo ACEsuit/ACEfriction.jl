@@ -19,6 +19,10 @@ end
     # path on multi-species systems, all model types / block properties / conventions
     @testset "fast vs reference" begin _run_test("test_fast_vs_reference.jl") end
 
+    # concurrent matrix/basis calls on one model object (runs in a 4-thread subprocess
+    # when the test process is single-threaded)
+    @testset "thread safety" begin _run_test("test_threadsafety.jl") end
+
     # I/O data round-trip
     @testset "I/O data" begin _run_test("test_IO_data.jl") end
 

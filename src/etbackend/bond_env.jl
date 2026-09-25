@@ -149,12 +149,14 @@ end
 # ---------------------------------------------------------------------------
 # Bond iterator (single ellipsoid cutoff) yielding (i, j, rrij, Js, Rs, Zs).
 
-struct ETBondsIterator{TX}
-   X::TX
+# (fields concretely typed: an abstract `PairList` field made every neighbour
+# access in `_bond_env` dynamically dispatched, ~15 μs per bond)
+struct ETBondsIterator{TPL <: PairList}
+   X::Vector{SVector{3, Float64}}
    Z::Vector{Int}
    N::Int
-   nlist_bond::PairList
-   nlist_env::PairList
+   nlist_bond::TPL
+   nlist_env::TPL
    ec::EllipsoidCutoff{Float64}
 end
 
@@ -164,7 +166,7 @@ function et_bonds(sys::AbstractSystem, ec::EllipsoidCutoff)
    Z = Int[ Int(atomic_number(sys, i)) for i in 1:N ]
    nlist_bond = PairList(sys, ec.rcutbond * u"Å")
    nlist_env  = PairList(sys, env_cutoff(ec) * u"Å")
-   return ETBondsIterator(X, Z, N, nlist_bond, nlist_env, ec)
+   return ETBondsIterator(X, Z, N, nlist_bond, nlist_env, EllipsoidCutoff{Float64}(ec.rcutbond, ec.rcutenv, ec.zcutenv))
 end
 
 function _bond_env(iter::ETBondsIterator, i, j, rrij)
@@ -173,7 +175,8 @@ function _bond_env(iter::ETBondsIterator, i, j, rrij)
    rrmid = rri + 0.5 * rrij
    ŝ = rrij / norm(rrij)
    Js = Int[]; Rs = SVector{3,Float64}[]; Zs = Int[]
-   q_bond = findfirst(rrq -> rrq ≈ rrij, Rs_i)
+   # the bond partner's own entry (same atom index and same periodic image)
+   q_bond = findfirst(q -> Js_i[q] == j && Rs_i[q] ≈ rrij, eachindex(Js_i))
    for (q, rrq) in enumerate(Rs_i)
       q == q_bond && continue
       rr = rrq + rri - rrmid

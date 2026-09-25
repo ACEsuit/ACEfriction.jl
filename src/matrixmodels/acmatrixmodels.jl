@@ -40,11 +40,13 @@ function _cwc_matrix(onsite::AbstractDict, offsite::AbstractDict, ::Type{SC}, se
     BT = block_type(first(values(onsite)).basis, T)
     Is = [Int[] for _=1:n_rep]; Js = [Int[] for _=1:n_rep]; Vs = [BT[] for _=1:n_rep]
     ctrs = _centre_cache(offsite)
+    wss = _workspace_cache(onsite)
     for (i, neigs, Rs) in _sites(at, rcut)
         (filter(i, at) && length(neigs) > 0) || continue
         Zs = Z[neigs]
         if haskey(onsite, Z[i])
-            Σi = evaluate(onsite[Z[i]], Rs, Zs)
+            om_i = onsite[Z[i]]
+            Σi = evaluate!(_workspace!(wss, Z[i], om_i), om_i, Rs, Zs)
             for r = 1:n_rep; push!(Is[r], i); push!(Js[r], i); push!(Vs[r], Σi[r]); end
         end
         for (j_loc, j) in enumerate(neigs)

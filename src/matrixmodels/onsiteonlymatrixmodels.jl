@@ -22,9 +22,11 @@ function _onsite_matrix(onsite::AbstractDict, n_rep::Int, at, filter, ::Type{T})
     N = length(at); Z = _species(at)
     BT = block_type(first(values(onsite)).basis, T)
     Σ = [ Diagonal(zeros(BT, N)) for _ = 1:n_rep ]
+    wss = _workspace_cache(onsite)
     for (i, neigs, Rs) in _sites(at, env_cutoff(onsite))
         (haskey(onsite, Z[i]) && filter(i, at) && length(neigs) > 0) || continue
-        Σi = evaluate(onsite[Z[i]], Rs, Z[neigs])
+        om = onsite[Z[i]]
+        Σi = evaluate!(_workspace!(wss, Z[i], om), om, Rs, Z[neigs])
         for r = 1:n_rep
             Σ[r].diag[i] = Σi[r]
         end
