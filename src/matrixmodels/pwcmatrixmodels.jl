@@ -12,6 +12,7 @@ struct PWCMatrixModel{O3S, CUTOFF, Z2S, SC} <: MatrixModel{O3S}
 end
 
 _get_SC(::PWCMatrixModel{O3S, TM, Z2S, SC}) where {O3S, Z2S, TM, SC} = SC
+sigma_structure(::Type{<:PWCMatrixModel}) = PairSigma()
 _offsite_cutoff(offsite::OffSiteModels) = first(values(offsite)).cutoff
 
 # ---- Σ assembly (ellipsoid: bond iterator) ----

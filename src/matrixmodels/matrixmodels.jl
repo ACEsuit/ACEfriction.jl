@@ -32,6 +32,12 @@ export NeighborCentered, AtomCentered
 export SelfImagePolicy, ExcludeSelfImages, IncludeSelfImages
 export matrix, basis, params, nparams, set_params!, set_zero!, get_id, randf
 
+# Extension API (public, not exported): what a matrix-model type defined in another
+# package needs; see the section "Extension API" below and docs/src/extending.md.
+public SigmaStructure, FullSigma, PairSigma, DiagonalSigma, sigma_structure,
+       offsite_models, site_inds, offsite_matrix, offsite_basis, n_rep, default_id,
+       self_image_policy, OnSiteModels, OffSiteModels, SiteInds
+
 # ---------------------------------------------------------------------------
 # markers
 
@@ -465,6 +471,126 @@ function scaling(mb::MatrixModel, p::Int)
       end
    end
    return scale
+end
+
+# ---------------------------------------------------------------------------
+# Extension API
+#
+# Matrix-model types can be defined outside this package as subtypes of
+# `MatrixModel`. Such a type needs
+#   * the fields `n_rep`, `inds::SiteInds`, `id`, and its site-model dictionaries
+#     `onsite` and/or `offsite` (read by the generic parameter plumbing: `params`,
+#     `set_params!`, `nparams`, `scaling`, ...);
+#   * methods for `matrix`, `basis`, `randf` and `write_dict` / `read_dict`;
+#   * a `sigma_structure` method if its friction tensor is not Γ = Σ Σᵀ of a general
+#     block matrix Σ (the default).
+# The functions below build atom-centred pair models and give access to their fast
+# per-centre assembly.
+
+"""
+    SigmaStructure
+
+How a matrix model's friction tensor is formed from its diffusion matrix Σ (per
+replica); selects the friction-tensor assembly and the layout of the fitting data:
+
+- `FullSigma()`: Γ = Σ Σᵀ with Σ a general sparse `N×N` block matrix (the default;
+  e.g. `CWCMatrixModel`);
+- `PairSigma()`: pairwise coupling, Γ_ij = Σ_ij Σ_jiᵀ (i ≠ j) and
+  Γ_ii = Σ_j Σ_ij Σ_ijᵀ (`PWCMatrixModel`);
+- `DiagonalSigma()`: block-diagonal Σ, Γ_ii = Σ_ii Σ_iiᵀ (`OnsiteOnlyMatrixModel`).
+"""
+abstract type SigmaStructure end
+struct FullSigma <: SigmaStructure end
+struct PairSigma <: SigmaStructure end
+struct DiagonalSigma <: SigmaStructure end
+
+"""
+    sigma_structure(::Type{<:MatrixModel}) -> SigmaStructure
+
+The [`SigmaStructure`](@ref) of a matrix-model type (default `FullSigma()`).
+"""
+sigma_structure(::Type{<:MatrixModel}) = FullSigma()
+sigma_structure(M::MatrixModel) = sigma_structure(typeof(M))
+
+"""
+    offsite_models(bb::BondBasis, cutoff, species_friction, n_rep;
+                   speciescoupling = SpeciesUnCoupled()) -> OffSiteModels
+
+One `OffSiteModel` (bond basis `bb`, `cutoff`, `n_rep` replicas, random
+coefficients) per species pair of `species_friction`: all ordered pairs for
+`SpeciesUnCoupled()`, unordered (sorted) pairs for `SpeciesCoupled()`.
+"""
+function offsite_models(bb::BondBasis, cutoff, species_friction, n_rep::Integer;
+                        speciescoupling::SpeciesCoupling = SpeciesUnCoupled())
+   pairs = [ _atomic_number.(zz) for zz in Base.Iterators.product(species_friction, species_friction) ]
+   speciescoupling isa SpeciesCoupled && (pairs = unique(_msort(zz...) for zz in pairs))
+   return Dict(zz => OffSiteModel(bb, cutoff, n_rep) for zz in pairs)
+end
+
+"""
+    site_inds(offsite) -> SiteInds
+    site_inds(onsite, offsite) -> SiteInds
+
+Basis-function index ranges of the site models (per species / species pair), in the
+order used by `params` / `basis`.
+"""
+site_inds(offsite::OffSiteModels) = SiteInds(_get_basisinds(offsite))
+site_inds(onsite::OnSiteModels, offsite::OffSiteModels) =
+      SiteInds(_get_basisinds(onsite), _get_basisinds(offsite))
+
+"""
+    n_rep(M::MatrixModel)
+    n_rep(models::Union{OnSiteModels, OffSiteModels})
+
+Number of replicas (independent linear maps per basis function).
+"""
+n_rep(M::MatrixModel) = _n_rep(M)
+n_rep(models::SiteModels) = _n_rep(models)
+
+"default model id for a block property (`:inv`, `:cov` or `:equ`)"
+default_id(property::ETProperty) = _default_id(_o3sym(property))
+
+"`IncludeSelfImages()` if `include` else `ExcludeSelfImages()`"
+self_image_policy(include::Bool) = include ? IncludeSelfImages() : ExcludeSelfImages()
+
+_check_atom_centred(offsite) =
+      all(m -> m.cutoff isa SphericalCutoff, values(offsite)) ||
+      throw(ArgumentError("atom-centred pair assembly requires offsite models with a SphericalCutoff"))
+
+"""
+    offsite_matrix(offsite, at; speciescoupling = SpeciesUnCoupled(),
+                   self_images = ExcludeSelfImages(), filter = (_, _) -> true, T = Float64)
+
+Atom-centred pair blocks of the offsite models `offsite` (`SphericalCutoff`) on the
+system `at`: one sparse `N×N` block matrix per replica whose block (i, j), for every
+neighbour j of i (subject to `filter` and `self_images`), is the block of the pair's
+model evaluated on the environment of i with bond partner j. The diagonal is empty
+unless periodic self-images are included. Uses the fast per-centre evaluation (all
+bonds of a centre share its neighbour data; see `SphericalCutoff`'s `partner_in_env`).
+"""
+function offsite_matrix(offsite::OffSiteModels, at::AbstractSystem;
+                        speciescoupling::SpeciesCoupling = SpeciesUnCoupled(),
+                        self_images::SelfImagePolicy = ExcludeSelfImages(),
+                        filter = (_, _) -> true, T = Float64)
+   _check_atom_centred(offsite)
+   for m in values(offsite); _fast(m); end
+   return _pwc_matrix(offsite, typeof(speciescoupling), self_images, _n_rep(offsite), at, filter, T)
+end
+
+"""
+    offsite_basis(offsite, at; inds = site_inds(offsite), speciescoupling = SpeciesUnCoupled(),
+                  self_images = ExcludeSelfImages(), filter = (_, _) -> true, T = Float64)
+
+Un-contracted counterpart of [`offsite_matrix`](@ref): one sparse `N×N` block matrix
+per basis function (index ranges `inds`), such that `Σ_k c[k][r] B[k]` is the
+`r`-th matrix of `offsite_matrix`.
+"""
+function offsite_basis(offsite::OffSiteModels, at::AbstractSystem; inds::SiteInds = site_inds(offsite),
+                       speciescoupling::SpeciesCoupling = SpeciesUnCoupled(),
+                       self_images::SelfImagePolicy = ExcludeSelfImages(),
+                       filter = (_, _) -> true, T = Float64)
+   _check_atom_centred(offsite)
+   return _pwc_basis(offsite, typeof(speciescoupling), self_images, inds, at, filter, T)
 end
 
 # ---------------------------------------------------------------------------

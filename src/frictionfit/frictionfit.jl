@@ -12,6 +12,7 @@ using Tullio
 using KernelAbstractions, CUDA
 # using KernelAbstractions, CUDAKernels, CUDA
 using ACEfriction.MatrixModels
+import ACEfriction.MatrixModels: sigma_structure, FullSigma, PairSigma, DiagonalSigma
 using LinearAlgebra: Diagonal
 include("./fluxmodels.jl")
 

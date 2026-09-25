@@ -11,6 +11,8 @@ struct OnsiteOnlyMatrixModel{O3S} <: MatrixModel{O3S}
     end
 end
 
+sigma_structure(::Type{<:OnsiteOnlyMatrixModel}) = DiagonalSigma()
+
 # Σ (diffusion coefficient matrix): per replica a block-diagonal matrix
 function matrix(M::OnsiteOnlyMatrixModel, at::AbstractSystem; filter=(_,_)->true, T=Float64)
     _refresh!(M)

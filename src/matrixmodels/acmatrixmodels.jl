@@ -21,6 +21,7 @@ struct CWCMatrixModel{O3S, Z2S, SC, EC} <: MatrixModel{O3S}
 end
 
 _get_SC(::CWCMatrixModel{O3S, Z2S, SC}) where {O3S, Z2S, SC} = SC
+sigma_structure(::Type{<:CWCMatrixModel}) = FullSigma()
 _cwc_rcut(M::CWCMatrixModel) = max(env_cutoff(M.onsite), env_cutoff(M.offsite))
 
 # Σ assembly. Onsite blocks come from the fused onsite evaluator; the bonds of a

@@ -1,5 +1,6 @@
 using ACEfriction.MatrixModels
 import ACEfriction.ETBackend: _atomic_number
+import ACEfriction.MatrixModels: offsite_models, default_id, self_image_policy, SpeciesCoupling
 import ACEfriction.MatrixModels: CWCMatrixModel, RWCMatrixModel, PWCMatrixModel, OnsiteOnlyMatrixModel
 import ACEfriction.MatrixModels: OnSiteModel, OffSiteModel, BondBasis, onsite_linbasis,
        offsite_linbasis, SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _o3symmetry, _default_id,
@@ -11,10 +12,10 @@ export CWCMatrixModel, RWCMatrixModel, PWCMatrixModel, OnsiteOnlyMatrixModel
 # `polytransform`/`trans` argument of the old backend is gone (the radial transform
 # is a generalized Agnesi parameterised by `r0_ratio`/`rin_ratio`).
 
-_o3id(property) = _default_id(_o3sym(property))
+_o3id(property) = default_id(property)
 
 # translate the user-facing `include_self_images::Bool` kwarg to the trait policy
-_self_image_policy(include::Bool) = include ? IncludeSelfImages() : ExcludeSelfImages()
+_self_image_policy(include::Bool) = self_image_policy(include)
 
 """
     OnsiteOnlyMatrixModel(property, species_friction, species_env;
@@ -134,15 +135,9 @@ function PWCMatrixModel(property, species_friction, species_env, cutoff::SnowMan
     return PWCMatrixModel(offsitemodels, id, speciescoupling, _self_image_policy(include_self_images))
 end
 
-function _offsite_dict(bb, cutoff, species_friction, n_rep, sc::SpeciesUnCoupled)
-    return Dict(_atomic_number.(zz) => OffSiteModel(bb, cutoff, n_rep)
-                for zz in Base.Iterators.product(species_friction, species_friction))
-end
-function _offsite_dict(bb, cutoff, species_friction, n_rep, sc::SpeciesCoupled)
-    return Dict(_atomic_number.(zz) => OffSiteModel(bb, cutoff, n_rep)
-                for zz in Base.Iterators.product(species_friction, species_friction)
-                if _mreduce(zz..., SpeciesCoupled) == zz)
-end
+# (kept for the constructors below; see the public `MatrixModels.offsite_models`)
+_offsite_dict(bb, cutoff, species_friction, n_rep, sc::SpeciesCoupling) =
+    offsite_models(bb, cutoff, species_friction, n_rep; speciescoupling = sc)
 
 """
     CWCMatrixModel(property, species_friction, species_env; maxorder=2, maxdeg=5, rcut=5.0, n_rep=1,

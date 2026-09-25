@@ -23,6 +23,9 @@ end
     # when the test process is single-threaded)
     @testset "thread safety" begin _run_test("test_threadsafety.jl") end
 
+    # extension API: a matrix-model type defined outside the package (public names only)
+    @testset "extension API" begin _run_test("test_extension_api.jl") end
+
     # I/O data round-trip
     @testset "I/O data" begin _run_test("test_IO_data.jl") end
 
