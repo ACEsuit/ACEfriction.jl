@@ -11,7 +11,7 @@
 #   - IncludeSelfImages: PWC acquires diagonal Σ_ii blocks (contributing 1·Σ_ii Σ_iiᵀ).
 # In both cases Cov(randf) must equal Γ.
 using ACEfriction
-using ACEfriction: EuclideanMatrix, EuclideanVector, ExcludeSelfImages, IncludeSelfImages
+using ACEfriction: EuclideanMatrix, EuclideanVector, ExcludeSelfImages, IncludeSelfImages, SnowManCutoff
 using ACEbase.FIO: write_dict, read_dict
 using Test, LinearAlgebra, StaticArrays
 import AtomsBuilder: bulk, rattle!
@@ -32,6 +32,8 @@ _dense(G, N) = (A = zeros(3N, 3N); for i=1:N, j=1:N; A[3i-2:3i, 3j-2:3j] .= G[i,
         ("OnsiteOnly", (p, inc) -> OnsiteOnlyMatrixModel(p, [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2, include_self_images=inc)),
         ("PWC",        (p, inc) -> PWCMatrixModel(p, [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2, include_self_images=inc)),
         ("CWC",        (p, inc) -> CWCMatrixModel(p, [:Cu], [:Cu]; maxorder=2, maxdeg=4, rcut=5.0, n_rep=2, include_self_images=inc)),
+        # :general snowman: Σ_ji ≠ ±Σ_ij, non-symmetric off-diagonal Γ blocks
+        ("SnowMan",    (p, inc) -> PWCMatrixModel(p, [:Cu], [:Cu], SnowManCutoff(5.0); maxorder=2, maxdeg=4, n_rep=2, include_self_images=inc)),
     ]
     properties = [("matrix-equ", EuclideanMatrix(Float64)), ("vector-equ", EuclideanVector(Float64))]
 

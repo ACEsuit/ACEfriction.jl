@@ -16,6 +16,7 @@ import ACEfriction.ETBackend
 import ACEfriction.ETBackend: ETInvariant, ETVector, ETMatrix, ETSymMatrix, ETProperty,
        onsite_basis, bond_basis, evaluate_bond,
        SphericalCutoff, EllipsoidCutoff, SnowManCutoff, _snowman_combine, partner_in_env,
+       _snowman_nbasis, _snowman_basis_combine, _snowman_fast_coeffs, _snowman_sigma_combine,
        ellipsoid_env_transform, spherical_bond_transform, et_bonds, env_cutoff,
        _atomic_number, _chemical_symbol, block_type, output_LL
 # fast (coefficient-contracted, per-centre) evaluators — see etbackend/fasteval.jl
@@ -143,13 +144,25 @@ struct OffSiteModel{O3S, Z2S, CUTOFF, NR, TB, TF} <: SiteModel
    fast::TF
 end
 function OffSiteModel(bb::BondBasis{TB, Z2S}, cutoff::CUTOFF, c::Vector{SVector{NR,Float64}}) where {TB, Z2S, CUTOFF, NR}
-   @assert length(bb.basis) == length(c)
+   @assert _nparams(bb.basis, cutoff) == length(c) "offsite model: $(_nparams(bb.basis, cutoff)) basis functions ≠ #coeffs $(length(c))"
    O3S = _o3sym(bb.basis.property)
-   fast = ETFastModel(bb.basis, c)
+   fast = ETFastModel(bb.basis, _fast_coeffs(cutoff, c))
    return OffSiteModel{O3S, Z2S, CUTOFF, NR, TB, typeof(fast)}(bb.basis, c, cutoff, fast)
 end
 OffSiteModel(bb::BondBasis, cutoff, n_rep::Integer) =
-      OffSiteModel(bb, cutoff, rand(SVector{n_rep, Float64}, length(bb.basis)))
+      OffSiteModel(bb, cutoff, rand(SVector{n_rep, Float64}, _nparams(bb.basis, cutoff)))
+
+# Number of coefficients of an offsite model with ET bond basis `basis` (length K) and
+# cutoff `cutoff`: K, except for the `:general` snowman (stacked symmetric / antisymmetric
+# combinations of the two bond ends, 2K).
+_nparams(basis, cutoff) = length(basis)
+_nparams(basis, cutoff::SnowManCutoff) = _snowman_nbasis(cutoff, length(basis))
+
+# Coefficients of the fast (per-centre, contracted) evaluator. These are the model
+# coefficients, except for the `:general` snowman, whose fast evaluator contracts a
+# directed bond with both end coefficients at once (see `_snowman_fast_coeffs`).
+_fast_coeffs(cutoff, c) = c
+_fast_coeffs(cutoff::SnowManCutoff{T, :general}, c) where {T} = _snowman_fast_coeffs(c)
 OffSiteModel(bb::BondBasis, r_cut::Real, n_rep::Integer) =
       OffSiteModel(bb, SphericalCutoff(Float64(r_cut)), n_rep)
 OffSiteModel(bb::BondBasis, rcutbond::Real, rcutenv::Real, zcutenv::Real, n_rep::Integer) =
@@ -159,13 +172,16 @@ _n_rep(::OnSiteModel{O3S, NR}) where {O3S, NR} = NR
 _n_rep(::OffSiteModel{O3S, Z2S, CUTOFF, NR}) where {O3S, Z2S, CUTOFF, NR} = NR
 _o3symmetry(::OnSiteModel{O3S}) where {O3S} = O3S
 _o3symmetry(::OffSiteModel{O3S}) where {O3S} = O3S
-Base.length(m::SiteModel) = length(m.basis)
+Base.length(m::SiteModel) = nparams(m)
 params(m::SiteModel) = m.c
 nparams(m::SiteModel) = length(m.c)
-set_params!(m::SiteModel, c) = (copyto!(m.c, c); refresh!(m.fast, m.c); m)
+set_params!(m::SiteModel, c) = (copyto!(m.c, c); _fast(m); m)
+
+_fast_coeffs(m::OnSiteModel) = m.c
+_fast_coeffs(m::OffSiteModel) = _fast_coeffs(m.cutoff, m.c)
 
 "the site model's fast evaluator, re-synced with `m.c` if needed"
-_fast(m::SiteModel) = refresh!(m.fast, m.c)
+_fast(m::SiteModel) = refresh!(m.fast, _fast_coeffs(m))
 
 # contract ET basis blocks with the coefficients -> SVector{NR, block}
 function _contract(m::SiteModel, B)
@@ -296,6 +312,8 @@ end
 # single bond of an atom-centred model: per-centre state built for this call only.
 # The assembly loops use `bond_centre` / `bond_sigma` directly to share it.
 function evaluate(sm::OffSiteModel{O3S,Z2S,<:AtomCentredCutoff}, j_loc::Integer, Rs, Zs) where {O3S,Z2S}
+   sm.cutoff isa SnowManCutoff{<:Any, :general} &&
+      error("a :general SnowManCutoff model has no single-end evaluation; assemble Σ with `matrix`.")
    pie = _partner_in_env(sm)
    ctr = bond_centre(_fast(sm), Rs, Zs, sm.cutoff.rcut; partner_in_env = pie)
    return bond_sigma(sm.fast, ctr, Int(j_loc); partner_in_env = pie)
@@ -467,7 +485,9 @@ function scaling(mb::MatrixModel, p::Int)
    for site in (:onsite, :offsite)
       hasfield(typeof(mb), site) || continue
       for (zz, mo) in getfield(mb, site)
-         scale[site][get_range(mb, zz)] = ETBackend.scaling(mo.basis, p)
+         s = ETBackend.scaling(mo.basis, p)
+         # :general snowman: the symmetric and antisymmetric halves share the bond basis
+         scale[site][get_range(mb, zz)] = length(s) == nparams(mo) ? s : repeat(s, nparams(mo) ÷ length(s))
       end
    end
    return scale

@@ -66,6 +66,8 @@ write_dict(c::SphericalCutoff) =
 read_dict(::Val{:ETBackend_SphericalCutoff}, D::AbstractDict) =
       SphericalCutoff(Float64(D["rcut"]); partner_in_env = Bool(get(D, "partner_in_env", false)))
 
+# The symmetry tag is serialized since it was introduced; dicts without it are the
+# original :symmetric snowman (independent of the constructor default, :general).
 write_dict(c::SnowManCutoff) =
       Dict{String,Any}("__id__" => "ETBackend_SnowManCutoff", "rcut" => c.rcut,
                        "symmetry" => String(symmetry(c)),

@@ -108,10 +108,13 @@ end
 """
     PWCMatrixModel(property, species_friction, species_env, cutoff::SnowManCutoff; ...)
 
-Pairwise-coupled offsite model with a *symmetrised* atom-centred environment: the
-block of pair `(i,j)` is `c·basis(sphere_i, bond i→j) + c·basis(sphere_j, bond j→i)`
-(two overlapping spheres, one per bond end). `cutoff.rcut` is the per-centre radius.
-Accepts the same selection/radial keywords as the other `PWCMatrixModel` methods.
+Pairwise-coupled offsite model on both bond ends' atom-centred environments (two
+overlapping spheres, one per bond end): with `B_ij = basis(sphere_i, bond i→j)`, the block
+of pair `(i,j)` is `c₊·(B_ij + B_ji) + c₋·(B_ij - B_ji)` for the default
+`SnowManCutoff(rcut)` (`:general`; non-symmetric `Γ_ij` blocks, twice the parameters), and
+`c·(B_ij ± B_ji)` for `SnowManCutoff(rcut, :symmetric)` / `:antisymmetric`. See
+[`SnowManCutoff`](@ref). `cutoff.rcut` is the per-centre radius. Accepts the same
+selection/radial keywords as the other `PWCMatrixModel` methods.
 """
 function PWCMatrixModel(property, species_friction, species_env, cutoff::SnowManCutoff;
         id=nothing, n_rep=1, maxorder=2, maxdeg=5,

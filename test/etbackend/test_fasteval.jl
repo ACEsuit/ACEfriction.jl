@@ -114,4 +114,9 @@ end
    # dicts written before the option existed default to the partner-excluded env
    D = Dict{String,Any}("__id__" => "ETBackend_SphericalCutoff", "rcut" => 4.0)
    @test ETBackend.read_dict(D).partner_in_env == false
+   # the default snowman is :general, but dicts written before the symmetry tag was
+   # serialized are the original :symmetric snowman
+   @test ETBackend.symmetry(ETBackend.SnowManCutoff(3.5)) === :general
+   D = Dict{String,Any}("__id__" => "ETBackend_SnowManCutoff", "rcut" => 4.0)
+   @test ETBackend.read_dict(D) isa ETBackend.SnowManCutoff{Float64, :symmetric}
 end
