@@ -229,8 +229,8 @@ function et_bonds(sys::AbstractSystem, ec::EllipsoidCutoff)
    N = length(sys)
    X = SVector{3,Float64}[ SVector{3,Float64}(ustrip.(u"Å", position(sys, i))) for i in 1:N ]
    Z = Int[ Int(atomic_number(sys, i)) for i in 1:N ]
-   nlist_bond = PairList(sys, ec.rcutbond * u"Å")
-   nlist_env  = PairList(sys, env_cutoff(ec) * u"Å")
+   nlist_bond = PairList(sys, ec.rcutbond * u"Å", int_type = Int)
+   nlist_env  = PairList(sys, env_cutoff(ec) * u"Å", int_type = Int)
    return ETBondsIterator(X, Z, N, nlist_bond, nlist_env, EllipsoidCutoff{Float64}(ec.rcutbond, ec.rcutenv, ec.zcutenv))
 end
 
