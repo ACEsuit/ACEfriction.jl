@@ -37,7 +37,9 @@ export matrix, basis, params, nparams, set_params!, set_zero!, get_id, randf
 # package needs; see the section "Extension API" below and docs/src/extending.md.
 public SigmaStructure, FullSigma, PairSigma, DiagonalSigma, sigma_structure,
        offsite_models, site_inds, offsite_matrix, offsite_basis, n_rep, default_id,
-       self_image_policy, OnSiteModels, OffSiteModels, SiteInds
+       self_image_policy, OnSiteModels, OffSiteModels
+# These symbols are already exported, but are listed here again.
+#       SiteInds
 
 # ---------------------------------------------------------------------------
 # markers
