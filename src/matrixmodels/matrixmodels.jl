@@ -98,7 +98,7 @@ end
 
 # JuLIP-free helpers (species as Int atomic numbers; neighbour iteration)
 _species(at::AbstractSystem) = Int[ Int(atomic_number(at, i)) for i in 1:length(at) ]
-_sites(at::AbstractSystem, rcut::Real) = sites(PairList(at, rcut * u"Å"))
+_sites(at::AbstractSystem, rcut::Real) = sites(PairList(at, rcut * u"Å", int_type = Int))
 _msort(z1, z2) = z1 <= z2 ? (z1, z2) : (z2, z1)
 _mreduce(z1, z2, ::SpeciesUnCoupled) = (z1, z2)
 _mreduce(z1, z2, ::SpeciesCoupled) = _msort(z1, z2)

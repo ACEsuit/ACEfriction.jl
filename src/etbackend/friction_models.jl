@@ -16,7 +16,7 @@ using Unitful: @u_str
 
 # JuLIP-free neighbour helpers (same as MatrixModels._species / _sites)
 _species_vec(at::AbstractSystem) = Int[ Int(atomic_number(at, i)) for i in 1:length(at) ]
-_sites_iter(at::AbstractSystem, rcut::Real) = sites(PairList(at, rcut * u"Å"))
+_sites_iter(at::AbstractSystem, rcut::Real) = sites(PairList(at, rcut * u"Å", int_type = Int))
 
 """
     ETOnsiteOnlyModel(onsite::Dict{Int,ETOnsiteModel}, rcut; id=:onsite)
